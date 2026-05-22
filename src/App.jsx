@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 
-const API_URL = "https://mdm-backend.onrender.com/api/v1";
+const API_URL = "https://mdm-backend-rk5x.onrender.com/api/v1";
 
 const MOCK_POLICIES = [
   { id: "p001", name: "Kurumsal", device_count: 0, rules: { "Şifre zorunlu (8+ karakter)": true, "Ekran kilidi: 30 sn": true, "VPN zorunlu": true }, created_at: "2024-01-01" },
