@@ -21,7 +21,7 @@ export default function MDMDashboard() {
   const [tab, setTab] = useState("overview");
   const [devices, setDevices] = useState([]);
   const [policies, setPolicies] = useState([]);
-  const [apps, setApps] = useState(MOCK_APPS);
+  const [apps] = useState(MOCK_APPS);
   const [stats, setStats] = useState({ total_devices: 0, online_devices: 0, offline_devices: 0, locked_devices: 0, non_compliant_devices: 0, pending_commands: 0, total_policies: 0, total_managed_apps: 0 });
   const [selectedDevice, setSelectedDevice] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -86,25 +86,27 @@ export default function MDMDashboard() {
     setApiLoading(false);
   };
 
-const generateQr = async (policyId = null, type = "provisioning") => {
-  setQrLoading(true);
-  setQrData(null);
-  try {
-    const endpoint = type === "simple"
-      ? `${API_URL}/enrollment/qr/simple`
-      : `${API_URL}/enrollment/qr`;
-    const url = policyId ? `${endpoint}?policy_id=${policyId}` : endpoint;
-    const resp = await fetch(url, { headers: authHeaders() });
-    if (resp.ok) {
-      const data = await resp.json();
-      setQrData({ ...data, type });
-      showToast("QR kod oluşturuldu");
+  const generateQr = async (policyId = null, type = "provisioning") => {
+    setQrLoading(true);
+    setQrData(null);
+    try {
+      const endpoint = type === "simple"
+        ? `${API_URL}/enrollment/qr/simple`
+        : `${API_URL}/enrollment/qr`;
+      const url = policyId ? `${endpoint}?policy_id=${policyId}` : endpoint;
+      const resp = await fetch(url, { headers: authHeaders() });
+      if (resp.ok) {
+        const data = await resp.json();
+        setQrData({ ...data, type });
+        showToast("QR kod oluşturuldu");
+      } else {
+        showToast("QR oluşturulamadı", "error");
+      }
+    } catch {
+      showToast("Bağlantı hatası", "error");
     }
-  } catch {
-    showToast("QR oluşturulamadı", "error");
-  }
-  setQrLoading(false);
-};
+    setQrLoading(false);
+  };
 
   useEffect(() => { if (token) fetchAll(); }, [token]);
 
@@ -120,12 +122,9 @@ const generateQr = async (policyId = null, type = "provisioning") => {
       });
       const success = resp.ok;
       setCommandLog(prev => [{
-        id: Date.now(),
-        device: device.name || device.model,
-        cmd: cmdMap[cmd] || cmd,
-        time: new Date().toLocaleTimeString("tr-TR"),
-        status: success ? "Gönderildi" : "Başarısız",
-        ok: success,
+        id: Date.now(), device: device.name || device.model,
+        cmd: cmdMap[cmd] || cmd, time: new Date().toLocaleTimeString("tr-TR"),
+        status: success ? "Gönderildi" : "Başarısız", ok: success,
       }, ...prev.slice(0, 19)]);
       if (success) {
         showToast(`"${cmdMap[cmd]}" komutu gönderildi`);
@@ -140,12 +139,10 @@ const generateQr = async (policyId = null, type = "provisioning") => {
   const filteredDevices = devices.filter(d => {
     const name = (d.name || `${d.manufacturer} ${d.model}`).toLowerCase();
     const owner = (d.owner_name || "").toLowerCase();
-    const matchSearch = name.includes(searchQuery.toLowerCase()) || owner.includes(searchQuery.toLowerCase());
-    const matchStatus = filterStatus === "all" || d.status === filterStatus;
-    return matchSearch && matchStatus;
+    return (name.includes(searchQuery.toLowerCase()) || owner.includes(searchQuery.toLowerCase())) &&
+      (filterStatus === "all" || d.status === filterStatus);
   });
 
-  // ─── Giriş Ekranı ─────────────────────────────────────────────────────────
   if (!token) return (
     <div style={{ fontFamily: "'DM Sans', system-ui", background: "#0f1117", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&display=swap'); * { box-sizing: border-box; margin: 0; padding: 0; }`}</style>
@@ -182,25 +179,22 @@ const generateQr = async (policyId = null, type = "provisioning") => {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: #1e2130; }
-        ::-webkit-scrollbar-thumb { background: #3a3f52; border-radius: 3px; }
+        ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-track { background: #1e2130; } ::-webkit-scrollbar-thumb { background: #3a3f52; border-radius: 3px; }
         .device-row { display: grid; grid-template-columns: 2fr 1.4fr 1fr 1fr 1fr 1fr 100px; gap: 12px; align-items: center; padding: 14px 18px; border-bottom: 1px solid #1e2130; cursor: pointer; transition: background .15s; font-size: 13px; }
-        .device-row:hover { background: #161925; }
-        .device-row.selected { background: #1a2236; }
+        .device-row:hover { background: #161925; } .device-row.selected { background: #1a2236; }
         .cmd-btn { padding: 6px 14px; border-radius: 7px; border: 1px solid #2a3048; background: #161925; color: #94a3b8; font-size: 12px; cursor: pointer; transition: all .15s; font-family: inherit; font-weight: 500; }
-        .cmd-btn:hover { background: #1e2a40; color: #60a5fa; border-color: #3b5499; }
-        .cmd-btn.danger:hover { background: #2d1a1a; color: #f87171; border-color: #5c2525; }
+        .cmd-btn:hover { background: #1e2a40; color: #60a5fa; border-color: #3b5499; } .cmd-btn.danger:hover { background: #2d1a1a; color: #f87171; border-color: #5c2525; }
         .stat-card { background: #161925; border-radius: 12px; padding: 20px 22px; border: 1px solid #1e2130; flex: 1; }
         .policy-card { background: #161925; border-radius: 12px; padding: 18px 20px; border: 1px solid #1e2130; margin-bottom: 14px; }
         input[type=text], select { background: #161925; border: 1px solid #2a3048; color: #e2e8f0; padding: 8px 14px; border-radius: 8px; font-size: 13px; font-family: inherit; outline: none; }
-        input[type=text]:focus, select:focus { border-color: #3b5499; }
-        select option { background: #161925; }
         .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,.7); display: flex; align-items: center; justify-content: center; z-index: 100; }
         .modal { background: #161925; border: 1px solid #2a3048; border-radius: 16px; padding: 28px 32px; width: 400px; max-width: 95vw; }
         .tag { display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: 11px; font-weight: 500; }
         .progress-bar { height: 5px; border-radius: 3px; background: #2a3048; overflow: hidden; }
         .progress-fill { height: 100%; border-radius: 3px; transition: width .4s; }
+        .qr-btn-primary { background: #1e2340; border: 1px solid #3b5499; border-radius: 8px; padding: 8px 16px; color: #60a5fa; font-size: 13px; cursor: pointer; font-family: inherit; width: 100%; margin-bottom: 8px; }
+        .qr-btn-secondary { background: #161925; border: 1px solid #2a3048; border-radius: 8px; padding: 8px 16px; color: #94a3b8; font-size: 13px; cursor: pointer; font-family: inherit; width: 100%; }
+        .qr-btn-primary:hover { background: #1e2a50; } .qr-btn-secondary:hover { background: #1e2130; color: #e2e8f0; }
       `}</style>
 
       <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
@@ -215,15 +209,14 @@ const generateQr = async (policyId = null, type = "provisioning") => {
               </div>
             </div>
           </div>
-
           <nav style={{ padding: "12px 10px", flex: 1 }}>
             {[
               { id: "overview", icon: "⬡",  label: "Genel Bakış" },
-              { id: "devices",  icon: "📱", label: "Cihazlar",       badge: stats.total_devices || null },
+              { id: "devices",  icon: "📱", label: "Cihazlar",      badge: stats.total_devices || null },
               { id: "policies", icon: "🛡️", label: "Politikalar" },
               { id: "apps",     icon: "📦", label: "Uygulamalar" },
               { id: "qr",       icon: "📷", label: "QR Kayıt" },
-              { id: "logs",     icon: "📋", label: "Komut Geçmişi",  badge: commandLog.length || null },
+              { id: "logs",     icon: "📋", label: "Komut Geçmişi", badge: commandLog.length || null },
             ].map(item => (
               <button key={item.id} onClick={() => setTab(item.id)}
                 style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "9px 12px", borderRadius: 8, border: "none", background: tab === item.id ? "#1e2340" : "transparent", color: tab === item.id ? "#60a5fa" : "#8892a4", fontSize: 13, fontFamily: "inherit", fontWeight: 500, cursor: "pointer", marginBottom: 2, textAlign: "left", transition: "all .15s" }}>
@@ -233,7 +226,6 @@ const generateQr = async (policyId = null, type = "provisioning") => {
               </button>
             ))}
           </nav>
-
           <div style={{ padding: "14px 16px", borderTop: "1px solid #1e2130" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
               <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 6px #22c55e" }}></div>
@@ -255,9 +247,7 @@ const generateQr = async (policyId = null, type = "provisioning") => {
               <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Son güncelleme: {new Date().toLocaleString("tr-TR")}</div>
             </div>
             {stats.non_compliant_devices > 0 && (
-              <div style={{ background: "#2d1a1a", border: "1px solid #5c2525", borderRadius: 8, padding: "6px 14px", fontSize: 12, color: "#f87171" }}>
-                ⚠️ {stats.non_compliant_devices} uyumsuz cihaz
-              </div>
+              <div style={{ background: "#2d1a1a", border: "1px solid #5c2525", borderRadius: 8, padding: "6px 14px", fontSize: 12, color: "#f87171" }}>⚠️ {stats.non_compliant_devices} uyumsuz cihaz</div>
             )}
           </div>
 
@@ -268,11 +258,11 @@ const generateQr = async (policyId = null, type = "provisioning") => {
               <div>
                 <div style={{ display: "flex", gap: 16, marginBottom: 28 }}>
                   {[
-                    { label: "Toplam Cihaz",  val: stats.total_devices,         color: "#60a5fa", icon: "📱" },
-                    { label: "Çevrimiçi",     val: stats.online_devices,        color: "#22c55e", icon: "🟢" },
-                    { label: "Çevrimdışı",    val: stats.offline_devices,       color: "#6b7280", icon: "⚫" },
-                    { label: "Uyumsuz",       val: stats.non_compliant_devices, color: "#f87171", icon: "⚠️" },
-                    { label: "Kilitli",       val: stats.locked_devices,        color: "#f59e0b", icon: "🔒" },
+                    { label: "Toplam Cihaz", val: stats.total_devices, color: "#60a5fa", icon: "📱" },
+                    { label: "Çevrimiçi", val: stats.online_devices, color: "#22c55e", icon: "🟢" },
+                    { label: "Çevrimdışı", val: stats.offline_devices, color: "#6b7280", icon: "⚫" },
+                    { label: "Uyumsuz", val: stats.non_compliant_devices, color: "#f87171", icon: "⚠️" },
+                    { label: "Kilitli", val: stats.locked_devices, color: "#f59e0b", icon: "🔒" },
                   ].map(s => (
                     <div key={s.label} className="stat-card" style={{ textAlign: "center" }}>
                       <div style={{ fontSize: 24, marginBottom: 8 }}>{s.icon}</div>
@@ -292,30 +282,23 @@ const generateQr = async (policyId = null, type = "provisioning") => {
                           <div style={{ fontSize: 13, fontWeight: 500, color: "#e2e8f0" }}>{d.name || `${d.manufacturer} ${d.model}`}</div>
                           <div style={{ fontSize: 11, color: "#64748b" }}>{d.owner_name || "—"}</div>
                         </div>
-                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          <div style={{ width: 7, height: 7, borderRadius: "50%", background: statusColor(d.status) }}></div>
-                          <span style={{ fontSize: 11, color: "#64748b" }}>{statusLabel(d.status)}</span>
-                        </div>
+                        <div style={{ width: 7, height: 7, borderRadius: "50%", background: statusColor(d.status) }}></div>
                       </div>
                     ))}
-                    {devices.filter(d => d.status === "online").length === 0 && (
-                      <div style={{ color: "#64748b", fontSize: 13, padding: "20px 0", textAlign: "center" }}>Çevrimiçi cihaz yok</div>
-                    )}
+                    {devices.filter(d => d.status === "online").length === 0 && <div style={{ color: "#64748b", fontSize: 13, padding: "20px 0", textAlign: "center" }}>Çevrimiçi cihaz yok</div>}
                   </div>
                   <div style={{ background: "#161925", borderRadius: 14, border: "1px solid #1e2130", padding: 20 }}>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9", marginBottom: 16 }}>Uyumluluk & İstatistik</div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9", marginBottom: 16 }}>Uyumluluk</div>
                     {[
-                      { label: "Uyumlu",  val: devices.filter(d => d.is_compliant !== false).length, color: "#22c55e" },
-                      { label: "Uyumsuz", val: devices.filter(d => d.is_compliant === false).length,  color: "#f87171" },
+                      { label: "Uyumlu", val: devices.filter(d => d.is_compliant !== false).length, color: "#22c55e" },
+                      { label: "Uyumsuz", val: devices.filter(d => d.is_compliant === false).length, color: "#f87171" },
                     ].map(item => (
                       <div key={item.label} style={{ marginBottom: 16 }}>
                         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
                           <span style={{ fontSize: 13, color: "#94a3b8" }}>{item.label}</span>
-                          <span style={{ fontSize: 13, fontWeight: 600, color: item.color, fontFamily: "monospace" }}>{item.val} / {devices.length || 0}</span>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: item.color }}>{item.val} / {devices.length || 0}</span>
                         </div>
-                        <div className="progress-bar">
-                          <div className="progress-fill" style={{ width: devices.length ? `${(item.val / devices.length) * 100}%` : "0%", background: item.color }} />
-                        </div>
+                        <div className="progress-bar"><div className="progress-fill" style={{ width: devices.length ? `${(item.val / devices.length) * 100}%` : "0%", background: item.color }} /></div>
                       </div>
                     ))}
                     <div style={{ marginTop: 16, padding: 14, background: "#0f1117", borderRadius: 10 }}>
@@ -332,8 +315,7 @@ const generateQr = async (policyId = null, type = "provisioning") => {
               <div style={{ display: "flex", gap: 20 }}>
                 <div style={{ flex: 1 }}>
                   <div style={{ display: "flex", gap: 12, marginBottom: 18 }}>
-                    <input type="text" placeholder="🔍 Cihaz veya kullanıcı ara..." value={searchQuery}
-                      onChange={e => setSearchQuery(e.target.value)} style={{ flex: 1 }} />
+                    <input type="text" placeholder="🔍 Cihaz veya kullanıcı ara..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} style={{ flex: 1 }} />
                     <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
                       <option value="all">Tüm Durumlar</option>
                       <option value="online">Çevrimiçi</option>
@@ -350,8 +332,7 @@ const generateQr = async (policyId = null, type = "provisioning") => {
                         {devices.length === 0 ? "Kayıtlı cihaz yok. QR Kayıt sekmesinden cihaz ekleyin." : "Sonuç bulunamadı"}
                       </div>
                     ) : filteredDevices.map(device => (
-                      <div key={device.id} className={`device-row ${selectedDevice?.id === device.id ? "selected" : ""}`}
-                        onClick={() => setSelectedDevice(device)}>
+                      <div key={device.id} className={`device-row ${selectedDevice?.id === device.id ? "selected" : ""}`} onClick={() => setSelectedDevice(device)}>
                         <div>
                           <div style={{ fontWeight: 500, color: "#e2e8f0", fontSize: 13 }}>{device.name || `${device.manufacturer} ${device.model}`}</div>
                           <div style={{ color: "#64748b", fontSize: 11 }}>{device.owner_name || "—"}</div>
@@ -366,9 +347,7 @@ const generateQr = async (policyId = null, type = "provisioning") => {
                         </div>
                         <div>
                           <div style={{ fontSize: 12, color: device.battery_level < 20 ? "#f87171" : "#94a3b8", fontFamily: "monospace" }}>%{device.battery_level}</div>
-                          <div className="progress-bar" style={{ width: 60, marginTop: 4 }}>
-                            <div className="progress-fill" style={{ width: `${device.battery_level}%`, background: device.battery_level < 20 ? "#ef4444" : device.battery_level < 50 ? "#f59e0b" : "#22c55e" }} />
-                          </div>
+                          <div className="progress-bar" style={{ width: 60, marginTop: 4 }}><div className="progress-fill" style={{ width: `${device.battery_level}%`, background: device.battery_level < 20 ? "#ef4444" : device.battery_level < 50 ? "#f59e0b" : "#22c55e" }} /></div>
                         </div>
                         <div style={{ fontSize: 12, color: "#94a3b8", fontFamily: "monospace" }}>{device.storage_used_gb}/{device.storage_total_gb} GB</div>
                         <div style={{ fontSize: 11, color: "#64748b" }}>{device.enrolled_at ? new Date(device.enrolled_at).toLocaleDateString("tr-TR") : "—"}</div>
@@ -380,7 +359,6 @@ const generateQr = async (policyId = null, type = "provisioning") => {
                     ))}
                   </div>
                 </div>
-
                 {selectedDevice && (
                   <div style={{ width: 300, background: "#161925", borderRadius: 14, border: "1px solid #1e2130", padding: 22, flexShrink: 0, alignSelf: "flex-start" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 18 }}>
@@ -396,15 +374,7 @@ const generateQr = async (policyId = null, type = "provisioning") => {
                         <span style={{ fontSize: 12, color: statusColor(selectedDevice.status) }}>{statusLabel(selectedDevice.status)}</span>
                       </div>
                     </div>
-                    {[
-                      ["Model",     selectedDevice.model],
-                      ["Üretici",   selectedDevice.manufacturer],
-                      ["Android",   selectedDevice.android_version],
-                      ["Batarya",   `%${selectedDevice.battery_level}`],
-                      ["Depolama",  `${selectedDevice.storage_used_gb}/${selectedDevice.storage_total_gb} GB`],
-                      ["Politika",  selectedDevice.policy_name || "—"],
-                      ["Uyumluluk", selectedDevice.is_compliant ? "✓ Uyumlu" : "✗ Uyumsuz"],
-                    ].map(([k, v]) => (
+                    {[["Model", selectedDevice.model], ["Üretici", selectedDevice.manufacturer], ["Android", selectedDevice.android_version], ["Batarya", `%${selectedDevice.battery_level}`], ["Depolama", `${selectedDevice.storage_used_gb}/${selectedDevice.storage_total_gb} GB`], ["Politika", selectedDevice.policy_name || "—"], ["Uyumluluk", selectedDevice.is_compliant ? "✓ Uyumlu" : "✗ Uyumsuz"]].map(([k, v]) => (
                       <div key={k} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: "1px solid #1e2130", fontSize: 12 }}>
                         <span style={{ color: "#64748b" }}>{k}</span>
                         <span style={{ color: "#94a3b8", fontFamily: "monospace" }}>{v}</span>
@@ -413,19 +383,9 @@ const generateQr = async (policyId = null, type = "provisioning") => {
                     <div style={{ marginTop: 18 }}>
                       <div style={{ fontSize: 11, color: "#64748b", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.05em" }}>Uzak Komutlar</div>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                        {[
-                          { cmd: "lock",        label: "🔒 Kilitle",         danger: false },
-                          { cmd: "unlock",      label: "🔓 Aç",              danger: false },
-                          { cmd: "reboot",      label: "🔁 Yeniden Başlat",  danger: false },
-                          { cmd: "locate",      label: "📍 Konum Al",        danger: false },
-                          { cmd: "push_policy", label: "🛡️ Politika Gönder", danger: false },
-                          { cmd: "wipe",        label: "🗑️ Fabrika Sıfırla", danger: true },
-                        ].map(({ cmd, label, danger }) => (
-                          <button key={cmd} className={`cmd-btn ${danger ? "danger" : ""}`}
-                            style={{ fontSize: 11, padding: "7px 4px", textAlign: "center" }}
-                            onClick={() => { setPendingCommand({ device: selectedDevice, cmd }); setShowCommandModal(true); }}>
-                            {label}
-                          </button>
+                        {[{ cmd: "lock", label: "🔒 Kilitle", danger: false }, { cmd: "unlock", label: "🔓 Aç", danger: false }, { cmd: "reboot", label: "🔁 Yeniden Başlat", danger: false }, { cmd: "locate", label: "📍 Konum Al", danger: false }, { cmd: "push_policy", label: "🛡️ Politika", danger: false }, { cmd: "wipe", label: "🗑️ Fabrika Sıfırla", danger: true }].map(({ cmd, label, danger }) => (
+                          <button key={cmd} className={`cmd-btn ${danger ? "danger" : ""}`} style={{ fontSize: 11, padding: "7px 4px", textAlign: "center" }}
+                            onClick={() => { setPendingCommand({ device: selectedDevice, cmd }); setShowCommandModal(true); }}>{label}</button>
                         ))}
                       </div>
                     </div>
@@ -445,22 +405,19 @@ const generateQr = async (policyId = null, type = "provisioning") => {
                         <div style={{ fontSize: 12, color: "#64748b", marginTop: 3 }}>{policy.device_count || 0} cihaz</div>
                       </div>
                       <div style={{ display: "flex", gap: 8 }}>
-                        <button className="cmd-btn" style={{ fontSize: 12 }} onClick={() => { setTab("qr"); generateQr(policy.id); }}>📷 QR Oluştur</button>
+                        <button className="cmd-btn" style={{ fontSize: 12 }} onClick={() => { setTab("qr"); generateQr(policy.id, "provisioning"); }}>📱 Sıfır Kurulum QR</button>
+                        <button className="cmd-btn" style={{ fontSize: 12 }} onClick={() => { setTab("qr"); generateQr(policy.id, "simple"); }}>📷 Hızlı QR</button>
                         <button className="cmd-btn" style={{ fontSize: 12 }} onClick={() => showToast(`"${policy.name}" politikası gönderildi`)}>📤 Gönder</button>
                       </div>
                     </div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                       {policy.rules && Object.entries(policy.rules).map(([k, v]) => (
-                        <span key={k} className="tag" style={{ background: "#1e2340", color: "#94a3b8", padding: "4px 12px", fontSize: 12 }}>
-                          ✓ {k}{typeof v !== "boolean" ? `: ${v}` : ""}
-                        </span>
+                        <span key={k} className="tag" style={{ background: "#1e2340", color: "#94a3b8", padding: "4px 12px", fontSize: 12 }}>✓ {k}{typeof v !== "boolean" ? `: ${v}` : ""}</span>
                       ))}
                     </div>
                   </div>
                 ))}
-                {policies.length === 0 && (
-                  <div style={{ color: "#64748b", fontSize: 13, textAlign: "center", padding: "40px" }}>Politika yok.</div>
-                )}
+                {policies.length === 0 && <div style={{ color: "#64748b", fontSize: 13, textAlign: "center", padding: "40px" }}>Politika yok.</div>}
               </div>
             )}
 
@@ -477,7 +434,7 @@ const generateQr = async (policyId = null, type = "provisioning") => {
                       </div>
                       {app.is_required && <span className="tag" style={{ background: "#1a2d1a", color: "#4ade80", fontSize: 10 }}>Zorunlu</span>}
                     </div>
-                    <div style={{ fontSize: 12, color: "#64748b", marginBottom: 8 }}>Sürüm: <span style={{ color: "#94a3b8", fontFamily: "monospace" }}>{app.version || "—"}</span></div>
+                    <div style={{ fontSize: 12, color: "#64748b", marginBottom: 8 }}>Sürüm: <span style={{ color: "#94a3b8", fontFamily: "monospace" }}>{app.version}</span></div>
                     <button className="cmd-btn" style={{ width: "100%", fontSize: 11, marginTop: 8 }} onClick={() => showToast(`"${app.name}" dağıtım isteği gönderildi`)}>📤 Dağıt</button>
                   </div>
                 ))}
@@ -487,53 +444,92 @@ const generateQr = async (policyId = null, type = "provisioning") => {
             {/* QR KAYIT */}
             {tab === "qr" && (
               <div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                   <div>
                     <div style={{ fontSize: 15, fontWeight: 600, color: "#f1f5f9" }}>QR Kod ile Cihaz Kaydı</div>
-                    <div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>Telefonda MDM Agent'ı açın → QR Tara → Otomatik kayıt</div>
+                    <div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>Sıfır kurulum veya hızlı kayıt QR kodu oluşturun</div>
                   </div>
-                  <button onClick={() => generateQr()} disabled={qrLoading}
-                    style={{ background: "#3b5499", border: "none", borderRadius: 8, padding: "10px 20px", color: "#fff", fontSize: 13, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>
-                    {qrLoading ? "⏳ Oluşturuluyor..." : "🔄 Yeni QR Oluştur"}
-                  </button>
                 </div>
 
-                {/* Politikaya göre QR butonları */}
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 16, marginBottom: 28 }}>
+                {/* Açıklama kartları */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 24 }}>
+                  <div style={{ background: "#161925", borderRadius: 12, border: "1px solid #1e2130", padding: 16 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "#60a5fa", marginBottom: 6 }}>📱 Sıfır Kurulum QR</div>
+                    <div style={{ fontSize: 12, color: "#64748b", lineHeight: 1.6 }}>
+                      Fabrika sıfırlı telefon için. Kurulum sihirbazında QR taranır, uygulama otomatik yüklenir.
+                    </div>
+                  </div>
+                  <div style={{ background: "#161925", borderRadius: 12, border: "1px solid #1e2130", padding: 16 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "#94a3b8", marginBottom: 6 }}>📷 Hızlı Kayıt QR</div>
+                    <div style={{ fontSize: 12, color: "#64748b", lineHeight: 1.6 }}>
+                      MDM Agent zaten yüklü cihazlar için. Uygulama içinden QR taranır, anında kayıt olur.
+                    </div>
+                  </div>
+                </div>
+
+                {/* Politika kartları */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 16, marginBottom: 28 }}>
                   <div style={{ background: "#161925", borderRadius: 14, border: "1px solid #1e2130", padding: 20 }}>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9", marginBottom: 6 }}>Varsayılan Politika</div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9", marginBottom: 4 }}>Varsayılan Politika</div>
                     <div style={{ fontSize: 12, color: "#64748b", marginBottom: 16 }}>Temel kısıtlamalarla kayıt</div>
-                    <button onClick={() => generateQr(null)} disabled={qrLoading}
-                      style={{ background: "#1e2340", border: "1px solid #3b5499", borderRadius: 8, padding: "8px 16px", color: "#60a5fa", fontSize: 13, cursor: "pointer", fontFamily: "inherit", width: "100%" }}>
-                      📷 QR Oluştur
+                    <button className="qr-btn-primary" onClick={() => generateQr(null, "provisioning")} disabled={qrLoading}>
+                      📱 Sıfır Kurulum QR
+                    </button>
+                    <button className="qr-btn-secondary" onClick={() => generateQr(null, "simple")} disabled={qrLoading}>
+                      📷 Hızlı Kayıt QR
                     </button>
                   </div>
                   {policies.map(policy => (
                     <div key={policy.id} style={{ background: "#161925", borderRadius: 14, border: "1px solid #1e2130", padding: 20 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9", marginBottom: 6 }}>{policy.name}</div>
-                      <div style={{ fontSize: 12, color: "#64748b", marginBottom: 16 }}>{policy.device_count || 0} cihaz bu politikada</div>
-                      <button onClick={() => generateQr(policy.id)} disabled={qrLoading}
-                        style={{ background: "#1e2340", border: "1px solid #3b5499", borderRadius: 8, padding: "8px 16px", color: "#60a5fa", fontSize: 13, cursor: "pointer", fontFamily: "inherit", width: "100%" }}>
-                        📷 QR Oluştur
+                      <div style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9", marginBottom: 4 }}>{policy.name}</div>
+                      <div style={{ fontSize: 12, color: "#64748b", marginBottom: 16 }}>{policy.device_count || 0} cihaz</div>
+                      <button className="qr-btn-primary" onClick={() => generateQr(policy.id, "provisioning")} disabled={qrLoading}>
+                        📱 Sıfır Kurulum QR
+                      </button>
+                      <button className="qr-btn-secondary" onClick={() => generateQr(policy.id, "simple")} disabled={qrLoading}>
+                        📷 Hızlı Kayıt QR
                       </button>
                     </div>
                   ))}
                 </div>
 
                 {/* QR Görüntüle */}
-                {qrData && (
+                {qrLoading && (
                   <div style={{ background: "#161925", borderRadius: 14, border: "1px solid #1e2130", padding: 40, textAlign: "center" }}>
-                    <div style={{ fontSize: 16, fontWeight: 600, color: "#f1f5f9", marginBottom: 6 }}>📷 Kayıt QR Kodu</div>
+                    <div style={{ fontSize: 32, marginBottom: 12 }}>⏳</div>
+                    <div style={{ fontSize: 14, color: "#64748b" }}>QR kod oluşturuluyor...</div>
+                  </div>
+                )}
+                {qrData && !qrLoading && (
+                  <div style={{ background: "#161925", borderRadius: 14, border: "1px solid #1e2130", padding: 40, textAlign: "center" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 6 }}>
+                      <span style={{ fontSize: 20 }}>{qrData.type === "simple" ? "📷" : "📱"}</span>
+                      <div style={{ fontSize: 16, fontWeight: 600, color: "#f1f5f9" }}>
+                        {qrData.type === "simple" ? "Hızlı Kayıt QR Kodu" : "Sıfır Kurulum QR Kodu"}
+                      </div>
+                    </div>
                     <div style={{ fontSize: 12, color: "#64748b", marginBottom: 28 }}>
                       Geçerlilik: {new Date(qrData.expires_at).toLocaleString("tr-TR")} (24 saat)
                     </div>
                     <div style={{ display: "inline-block", background: "white", padding: 16, borderRadius: 12 }}>
                       <img src={qrData.qr_image} alt="QR Kod" style={{ width: 240, height: 240, display: "block" }} />
                     </div>
-                    <div style={{ marginTop: 24, fontSize: 13, color: "#64748b", lineHeight: 1.8 }}>
-                      1. Telefonda <strong style={{ color: "#60a5fa" }}>MDM Agent</strong> uygulamasını aç<br />
-                      2. <strong style={{ color: "#60a5fa" }}>"QR ile Kayıt"</strong> butonuna bas<br />
-                      3. Kamerayı QR koda tut → Otomatik kayıt başlar
+                    <div style={{ marginTop: 24, fontSize: 13, color: "#64748b", lineHeight: 2, background: "#0f1117", padding: 16, borderRadius: 10, textAlign: "left", maxWidth: 400, margin: "24px auto 0" }}>
+                      {qrData.type === "simple" ? (
+                        <>
+                          <div>1. Telefonda <strong style={{ color: "#60a5fa" }}>MDM Agent</strong> uygulamasını aç</div>
+                          <div>2. <strong style={{ color: "#60a5fa" }}>"QR ile Kayıt"</strong> butonuna bas</div>
+                          <div>3. Kamerayı QR koda tut → Otomatik kayıt</div>
+                        </>
+                      ) : (
+                        <>
+                          <div>1. Telefonu <strong style={{ color: "#60a5fa" }}>fabrika ayarlarına sıfırla</strong></div>
+                          <div>2. Açılış ekranında dil seç</div>
+                          <div>3. Wi-Fi bağlantısı ekranında <strong style={{ color: "#60a5fa" }}>ekrana 6 kez dokun</strong></div>
+                          <div>4. QR okuyucu açılır → Bu QR'ı tara</div>
+                          <div>5. Uygulama otomatik yüklenir ✅</div>
+                        </>
+                      )}
                     </div>
                   </div>
                 )}
@@ -548,16 +544,11 @@ const generateQr = async (policyId = null, type = "provisioning") => {
                   <span style={{ fontSize: 12, color: "#64748b" }}>{commandLog.length} kayıt</span>
                 </div>
                 {commandLog.length === 0 ? (
-                  <div style={{ padding: "60px 20px", textAlign: "center", color: "#64748b", fontSize: 13 }}>
-                    Henüz komut gönderilmedi.
-                  </div>
+                  <div style={{ padding: "60px 20px", textAlign: "center", color: "#64748b", fontSize: 13 }}>Henüz komut gönderilmedi.</div>
                 ) : commandLog.map(log => (
                   <div key={log.id} style={{ display: "flex", alignItems: "center", gap: 16, padding: "14px 20px", borderBottom: "1px solid #1e2130", fontSize: 13 }}>
                     <span style={{ fontSize: 18 }}>{log.ok ? "✅" : "❌"}</span>
-                    <div style={{ flex: 1 }}>
-                      <span style={{ color: "#e2e8f0", fontWeight: 500 }}>{log.cmd}</span>
-                      <span style={{ color: "#64748b" }}> → {log.device}</span>
-                    </div>
+                    <div style={{ flex: 1 }}><span style={{ color: "#e2e8f0", fontWeight: 500 }}>{log.cmd}</span><span style={{ color: "#64748b" }}> → {log.device}</span></div>
                     <span style={{ fontSize: 11, color: "#64748b", fontFamily: "monospace" }}>{log.time}</span>
                     <span className="tag" style={{ background: log.ok ? "#1a2d1a" : "#2d1a1a", color: log.ok ? "#4ade80" : "#f87171", fontSize: 11 }}>{log.status}</span>
                   </div>
@@ -568,18 +559,13 @@ const generateQr = async (policyId = null, type = "provisioning") => {
         </div>
       </div>
 
-      {/* Komut Onay Modal */}
       {showCommandModal && pendingCommand && (
         <div className="modal-overlay" onClick={() => { setShowCommandModal(false); setPendingCommand(null); }}>
           <div className="modal" onClick={e => e.stopPropagation()}>
-            <div style={{ fontSize: 16, fontWeight: 600, color: "#f1f5f9", marginBottom: 10 }}>
-              {pendingCommand.cmd === "wipe" ? "⚠️ Tehlikeli İşlem" : "Komutu Onayla"}
-            </div>
+            <div style={{ fontSize: 16, fontWeight: 600, color: "#f1f5f9", marginBottom: 10 }}>{pendingCommand.cmd === "wipe" ? "⚠️ Tehlikeli İşlem" : "Komutu Onayla"}</div>
             <div style={{ fontSize: 13, color: "#94a3b8", marginBottom: 22, lineHeight: 1.6 }}>
               <strong style={{ color: "#e2e8f0" }}>{pendingCommand.device.name || pendingCommand.device.model}</strong> cihazına{" "}
-              {pendingCommand.cmd === "wipe"
-                ? <span style={{ color: "#f87171" }}>fabrika sıfırlama komutu gönderilecek. Tüm veriler silinecek!</span>
-                : `"${pendingCommand.cmd}" komutu gönderilecek.`}
+              {pendingCommand.cmd === "wipe" ? <span style={{ color: "#f87171" }}>fabrika sıfırlama komutu gönderilecek!</span> : `"${pendingCommand.cmd}" komutu gönderilecek.`}
             </div>
             <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
               <button className="cmd-btn" onClick={() => { setShowCommandModal(false); setPendingCommand(null); }}>İptal</button>
@@ -592,7 +578,6 @@ const generateQr = async (policyId = null, type = "provisioning") => {
         </div>
       )}
 
-      {/* Toast */}
       {toast && (
         <div style={{ position: "fixed", bottom: 28, right: 28, background: toast.type === "error" ? "#2d1a1a" : "#1e2340", border: `1px solid ${toast.type === "error" ? "#7c2626" : "#3b5499"}`, borderRadius: 10, padding: "12px 20px", color: toast.type === "error" ? "#f87171" : "#60a5fa", fontSize: 13, zIndex: 200, maxWidth: 380, boxShadow: "0 8px 30px rgba(0,0,0,.5)" }}>
           {toast.type === "error" ? "❌" : "✅"} {toast.msg}
