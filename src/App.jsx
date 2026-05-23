@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import React from "react";
 
 const API_URL = "https://mdm-backend-rk5x.onrender.com/api/v1";
 
@@ -12,6 +13,85 @@ const statusColor = (s) => ({ online: "#22c55e", offline: "#6b7280", locked: "#f
 const statusLabel = (s) => ({ online: "Çevrimiçi", offline: "Çevrimdışı", locked: "Kilitli", wiped: "Silindi", pending: "Bekliyor" }[s] || s);
 const roleColor = (r) => ({ admin: "#f87171", operator: "#60a5fa", viewer: "#94a3b8" }[r] || "#94a3b8");
 const roleLabel = (r) => ({ admin: "Admin", operator: "Operatör", viewer: "Görüntüleyici" }[r] || r);
+
+
+// ─── Leaflet Harita Bileşeni ────────────────────────────────────────────────
+function MapView({ locations, onSelect, selected }) {
+  const mapRef = React.useRef(null);
+  const leafletMap = React.useRef(null);
+  const markersRef = React.useRef([]);
+
+  useEffect(() => {
+    if (!mapRef.current || leafletMap.current) return;
+
+    // Leaflet CSS yükle
+    if (!document.getElementById("leaflet-css")) {
+      const link = document.createElement("link");
+      link.id = "leaflet-css";
+      link.rel = "stylesheet";
+      link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+      document.head.appendChild(link);
+    }
+
+    // Leaflet JS yükle
+    const script = document.createElement("script");
+    script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+    script.onload = () => initMap();
+    document.head.appendChild(script);
+  }, []);
+
+  const initMap = () => {
+    if (!mapRef.current || leafletMap.current) return;
+    const L = window.L;
+    const center = locations.length > 0 ? [locations[0].lat, locations[0].lng] : [39.9, 32.8];
+    leafletMap.current = L.map(mapRef.current).setView(center, 10);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "© OpenStreetMap",
+      maxZoom: 18,
+    }).addTo(leafletMap.current);
+    addMarkers();
+  };
+
+  const addMarkers = () => {
+    if (!leafletMap.current || !window.L) return;
+    const L = window.L;
+    markersRef.current.forEach(m => m.remove());
+    markersRef.current = [];
+
+    locations.forEach(loc => {
+      const color = { online: "#22c55e", offline: "#6b7280", locked: "#f59e0b", wiped: "#ef4444" }[loc.status] || "#6b7280";
+      const icon = L.divIcon({
+        className: "",
+        html: `<div style="width:14px;height:14px;border-radius:50%;background:${color};border:2px solid white;box-shadow:0 0 6px ${color}"></div>`,
+        iconSize: [14, 14],
+        iconAnchor: [7, 7],
+      });
+      const marker = L.marker([loc.lat, loc.lng], { icon })
+        .addTo(leafletMap.current)
+        .bindPopup(`<b>${loc.name}</b><br>${loc.owner || ""}<br>🔋 %${loc.battery}`);
+      marker.on("click", () => onSelect(loc));
+      markersRef.current.push(marker);
+    });
+
+    if (locations.length > 1) {
+      const group = L.featureGroup(markersRef.current);
+      leafletMap.current.fitBounds(group.getBounds().pad(0.1));
+    }
+  };
+
+  useEffect(() => {
+    if (window.L && leafletMap.current) addMarkers();
+  }, [locations]);
+
+  useEffect(() => {
+    if (!selected || !leafletMap.current) return;
+    leafletMap.current.setView([selected.lat, selected.lng], 14);
+  }, [selected]);
+
+  return <div ref={mapRef} style={{ width: "100%", height: "100%", borderRadius: 14 }} />;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 
 export default function MDMDashboard() {
   const [token, setToken] = useState(() => localStorage.getItem("mdm_token") || null);
@@ -38,6 +118,14 @@ export default function MDMDashboard() {
   const [qrLoading, setQrLoading] = useState(false);
   const [reports, setReports] = useState({ summary: null, battery: null, storage: null, commands: null, devices: [] });
   const [reportsLoading, setReportsLoading] = useState(false);
+  const [users, setUsers] = useState([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [showUserModal, setShowUserModal] = useState(false);
+  const [newUser, setNewUser] = useState({ email: "", password: "", full_name: "", role: "operator" });
+  const [userError, setUserError] = useState("");
+  const [mapLocations, setMapLocations] = useState([]);
+  const [mapLoading, setMapLoading] = useState(false);
+  const [selectedMapDevice, setSelectedMapDevice] = useState(null);
   const [showUserModal, setShowUserModal] = useState(false);
   const [newUser, setNewUser] = useState({ email: "", password: "", full_name: "", role: "operator" });
   const [userLoading, setUserLoading] = useState(false);
@@ -122,6 +210,42 @@ export default function MDMDashboard() {
     setReportsLoading(false);
   };
 
+  const fetchUsers = async () => {
+    setUsersLoading(true);
+    try {
+      const resp = await fetch(`${API_URL}/auth/users`, { headers: authHeaders() });
+      if (resp.ok) setUsers(await resp.json());
+    } catch { showToast("Kullanıcılar yüklenemedi", "error"); }
+    setUsersLoading(false);
+  };
+
+  const createUser = async () => {
+    setUserError("");
+    if (!newUser.email || !newUser.password) { setUserError("E-posta ve şifre zorunlu"); return; }
+    try {
+      const resp = await fetch(`${API_URL}/auth/users`, { method: "POST", headers: authHeaders(), body: JSON.stringify(newUser) });
+      if (resp.ok) {
+        showToast("Kullanıcı oluşturuldu");
+        setShowUserModal(false);
+        setNewUser({ email: "", password: "", full_name: "", role: "operator" });
+        fetchUsers();
+      } else {
+        const err = await resp.json();
+        setUserError(err.detail || "Hata oluştu");
+      }
+    } catch { setUserError("Bağlantı hatası"); }
+  };
+
+  const fetchMapLocations = async () => {
+    setMapLoading(true);
+    try {
+      const resp = await fetch(`${API_URL}/devices/locations/all`, { headers: authHeaders() });
+      if (resp.ok) setMapLocations(await resp.json());
+      else setMapLocations([]);
+    } catch { setMapLocations([]); }
+    setMapLoading(false);
+  };
+
   const generateQr = async (policyId = null, type = "provisioning") => {
     setQrLoading(true); setQrData(null);
     try {
@@ -149,6 +273,9 @@ export default function MDMDashboard() {
   useEffect(() => { if (token) fetchAll(); }, [token]);
   useEffect(() => { if (token && tab === "reports") fetchReports(); }, [tab]);
   useEffect(() => { if (token && tab === "users") fetchUsers(); }, [tab]);
+  useEffect(() => { if (token && tab === "map") fetchMapLocations(); }, [tab]);
+  useEffect(() => { if (token && tab === "users") fetchUsers(); }, [tab]);
+  useEffect(() => { if (token && tab === "map") fetchMapLocations(); }, [tab]);
 
   const filteredDevices = devices.filter(d => {
     const name = (d.name || `${d.manufacturer} ${d.model}`).toLowerCase();
@@ -189,6 +316,8 @@ export default function MDMDashboard() {
     { id: "apps", icon: "📦", label: "Uygulamalar" },
     { id: "qr", icon: "📷", label: "QR Kayıt" },
     { id: "reports", icon: "📊", label: "Raporlar" },
+              { id: "users", icon: "👥", label: "Kullanıcılar" },
+              { id: "map", icon: "🗺️", label: "Harita" },
     ...(currentUser?.role === "admin" ? [{ id: "users", icon: "👥", label: "Kullanıcılar", badge: users.length || null }] : []),
     { id: "logs", icon: "📋", label: "Komut Geçmişi", badge: commandLog.length || null },
   ];
@@ -273,7 +402,7 @@ export default function MDMDashboard() {
           <div style={{ padding: "16px 28px", borderBottom: "1px solid #1e2130", background: "#0d0f18", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
             <div>
               <div style={{ fontSize: 18, fontWeight: 600, color: "#f1f5f9" }}>
-                {{ overview: "Genel Bakış", devices: "Cihaz Yönetimi", policies: "Politika Yönetimi", apps: "Uygulama Yönetimi", qr: "QR Kayıt", reports: "Raporlar", users: "Kullanıcı Yönetimi", logs: "Komut Geçmişi" }[tab]}
+                {{ overview: "Genel Bakış", devices: "Cihaz Yönetimi", policies: "Politika Yönetimi", apps: "Uygulama Yönetimi", qr: "QR Kayıt", reports: "Raporlar", users: "Kullanıcı Yönetimi", map: "Cihaz Haritası", logs: "Komut Geçmişi" }[tab]}
               </div>
               <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Son güncelleme: {new Date().toLocaleString("tr-TR")}</div>
             </div>
@@ -643,6 +772,117 @@ export default function MDMDashboard() {
               </div>
             )}
 
+
+            {/* KULLANICI YÖNETİMİ */}
+            {tab === "users" && (
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+                  <div style={{ fontSize: 15, fontWeight: 600, color: "#f1f5f9" }}>Kullanıcı Yönetimi</div>
+                  <button onClick={() => setShowUserModal(true)}
+                    style={{ background: "#3b5499", border: "none", borderRadius: 8, padding: "10px 20px", color: "#fff", fontSize: 13, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>
+                    + Yeni Kullanıcı
+                  </button>
+                </div>
+                {usersLoading ? (
+                  <div style={{ textAlign: "center", padding: "60px", color: "#64748b" }}>⏳ Yükleniyor...</div>
+                ) : (
+                  <div style={{ background: "#161925", borderRadius: 14, border: "1px solid #1e2130", overflow: "hidden" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "2fr 2fr 1fr 1fr 1fr", gap: 12, padding: "12px 18px", background: "#0d0f18", color: "#64748b", fontWeight: 600, fontSize: 11, letterSpacing: "0.05em", textTransform: "uppercase" }}>
+                      <span>Ad Soyad</span><span>E-posta</span><span>Rol</span><span>Son Giriş</span><span>Durum</span>
+                    </div>
+                    {users.map(user => (
+                      <div key={user.id} style={{ display: "grid", gridTemplateColumns: "2fr 2fr 1fr 1fr 1fr", gap: 12, alignItems: "center", padding: "14px 18px", borderBottom: "1px solid #1e2130", fontSize: 13 }}>
+                        <div style={{ fontWeight: 500, color: "#e2e8f0" }}>{user.full_name || "—"}</div>
+                        <div style={{ color: "#94a3b8", fontSize: 12 }}>{user.email}</div>
+                        <div>
+                          <span className="tag" style={{
+                            background: user.role === "admin" ? "#1e2340" : user.role === "operator" ? "#1a2d1a" : "#2a2a1a",
+                            color: user.role === "admin" ? "#60a5fa" : user.role === "operator" ? "#4ade80" : "#fbbf24",
+                            padding: "3px 10px"
+                          }}>
+                            {user.role === "admin" ? "👑 Admin" : user.role === "operator" ? "⚙️ Operatör" : "👁️ Görüntüleyici"}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: 11, color: "#64748b" }}>
+                          {user.last_login ? new Date(user.last_login).toLocaleDateString("tr-TR") : "—"}
+                        </div>
+                        <div>
+                          <span className="tag" style={{ background: user.is_active ? "#1a2d1a" : "#2d1a1a", color: user.is_active ? "#4ade80" : "#f87171", padding: "3px 8px" }}>
+                            {user.is_active ? "Aktif" : "Pasif"}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                    {users.length === 0 && <div style={{ padding: "40px", textAlign: "center", color: "#64748b", fontSize: 13 }}>Kullanıcı bulunamadı</div>}
+                  </div>
+                )}
+              </div>
+            )}
+
+
+            {/* HARİTA */}
+            {tab === "map" && (
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+                  <div>
+                    <div style={{ fontSize: 15, fontWeight: 600, color: "#f1f5f9" }}>Cihaz Konumu Haritası</div>
+                    <div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>Konum bilgisi olan cihazlar gösteriliyor</div>
+                  </div>
+                  <button onClick={fetchMapLocations} disabled={mapLoading}
+                    style={{ background: "#1e2130", border: "1px solid #2a3048", borderRadius: 8, padding: "8px 16px", color: "#94a3b8", fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>
+                    {mapLoading ? "⟳ Yükleniyor..." : "🔄 Yenile"}
+                  </button>
+                </div>
+
+                {mapLoading && <div style={{ textAlign: "center", padding: "60px", color: "#64748b" }}>⏳ Konumlar yükleniyor...</div>}
+
+                {!mapLoading && (
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: 20 }}>
+                    {/* Leaflet Harita */}
+                    <div style={{ background: "#161925", borderRadius: 14, border: "1px solid #1e2130", overflow: "hidden", height: 500 }}>
+                      {mapLocations.length === 0 ? (
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", flexDirection: "column", gap: 12 }}>
+                          <div style={{ fontSize: 48 }}>🗺️</div>
+                          <div style={{ fontSize: 14, color: "#64748b", textAlign: "center" }}>
+                            Konum bilgisi olan cihaz yok<br />
+                            <span style={{ fontSize: 12 }}>Cihazlar konum izni verirse burada görünür</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <MapView locations={mapLocations} onSelect={setSelectedMapDevice} selected={selectedMapDevice} />
+                      )}
+                    </div>
+
+                    {/* Cihaz Listesi */}
+                    <div style={{ background: "#161925", borderRadius: 14, border: "1px solid #1e2130", padding: 16, height: 500, overflowY: "auto" }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "#f1f5f9", marginBottom: 14 }}>
+                        📍 {mapLocations.length} Konum
+                      </div>
+                      {mapLocations.length === 0 ? (
+                        <div style={{ color: "#64748b", fontSize: 12, textAlign: "center", padding: "40px 0" }}>Konum yok</div>
+                      ) : mapLocations.map(loc => (
+                        <div key={loc.device_id}
+                          onClick={() => setSelectedMapDevice(loc)}
+                          style={{ padding: "12px", borderRadius: 10, background: selectedMapDevice?.device_id === loc.device_id ? "#1e2340" : "#0f1117", border: `1px solid ${selectedMapDevice?.device_id === loc.device_id ? "#3b5499" : "#1e2130"}`, marginBottom: 8, cursor: "pointer", transition: "all .15s" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                            <div style={{ width: 8, height: 8, borderRadius: "50%", background: statusColor(loc.status), flexShrink: 0 }}></div>
+                            <div style={{ fontSize: 13, fontWeight: 500, color: "#e2e8f0" }}>{loc.name}</div>
+                          </div>
+                          <div style={{ fontSize: 11, color: "#64748b", marginBottom: 4 }}>{loc.owner || "—"}</div>
+                          <div style={{ fontSize: 10, color: "#475569", fontFamily: "monospace" }}>
+                            {loc.lat.toFixed(4)}, {loc.lng.toFixed(4)}
+                          </div>
+                          <div style={{ fontSize: 10, color: "#475569", marginTop: 4 }}>
+                            🔋 %{loc.battery} · {loc.last_seen ? new Date(loc.last_seen).toLocaleString("tr-TR") : "—"}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* LOGS */}
             {tab === "logs" && (
               <div style={{ background: "#161925", borderRadius: 14, border: "1px solid #1e2130", overflow: "hidden" }}>
@@ -703,6 +943,45 @@ export default function MDMDashboard() {
       )}
 
       {/* Komut Onay Modal */}
+
+      {/* Kullanıcı Oluşturma Modalı */}
+      {showUserModal && (
+        <div className="modal-overlay" onClick={() => { setShowUserModal(false); setUserError(""); }}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ width: 480 }}>
+            <div style={{ fontSize: 16, fontWeight: 600, color: "#f1f5f9", marginBottom: 20 }}>+ Yeni Kullanıcı Oluştur</div>
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 12, color: "#64748b", marginBottom: 6 }}>Ad Soyad</div>
+              <input type="text" value={newUser.full_name} onChange={e => setNewUser(p => ({ ...p, full_name: e.target.value }))} placeholder="Ahmet Yılmaz"
+                style={{ width: "100%", background: "#0f1117", border: "1px solid #2a3048", borderRadius: 8, padding: "10px 14px", color: "#e2e8f0", fontSize: 13, fontFamily: "inherit", outline: "none" }} />
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 12, color: "#64748b", marginBottom: 6 }}>E-posta</div>
+              <input type="email" value={newUser.email} onChange={e => setNewUser(p => ({ ...p, email: e.target.value }))} placeholder="ahmet@sirket.com"
+                style={{ width: "100%", background: "#0f1117", border: "1px solid #2a3048", borderRadius: 8, padding: "10px 14px", color: "#e2e8f0", fontSize: 13, fontFamily: "inherit", outline: "none" }} />
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 12, color: "#64748b", marginBottom: 6 }}>Şifre</div>
+              <input type="password" value={newUser.password} onChange={e => setNewUser(p => ({ ...p, password: e.target.value }))} placeholder="En az 8 karakter"
+                style={{ width: "100%", background: "#0f1117", border: "1px solid #2a3048", borderRadius: 8, padding: "10px 14px", color: "#e2e8f0", fontSize: 13, fontFamily: "inherit", outline: "none" }} />
+            </div>
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 12, color: "#64748b", marginBottom: 6 }}>Rol</div>
+              <select value={newUser.role} onChange={e => setNewUser(p => ({ ...p, role: e.target.value }))}
+                style={{ width: "100%", background: "#0f1117", border: "1px solid #2a3048", borderRadius: 8, padding: "10px 14px", color: "#e2e8f0", fontSize: 13, fontFamily: "inherit", outline: "none" }}>
+                <option value="viewer">👁️ Görüntüleyici — Sadece okuma</option>
+                <option value="operator">⚙️ Operatör — Komut gönderebilir</option>
+                <option value="admin">👑 Admin — Tam yetki</option>
+              </select>
+            </div>
+            {userError && <div style={{ color: "#f87171", fontSize: 12, marginBottom: 16, background: "#2d1a1a", padding: "8px 12px", borderRadius: 8 }}>{userError}</div>}
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button className="cmd-btn" onClick={() => { setShowUserModal(false); setUserError(""); }}>İptal</button>
+              <button onClick={createUser} style={{ background: "#1e2a40", border: "1px solid #3b5499", borderRadius: 8, padding: "8px 20px", color: "#60a5fa", fontSize: 13, cursor: "pointer", fontFamily: "inherit", fontWeight: 500 }}>✅ Oluştur</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showCommandModal && pendingCommand && (
         <div className="modal-overlay" onClick={() => { setShowCommandModal(false); setPendingCommand(null); }}>
           <div className="modal" onClick={e => e.stopPropagation()}>
