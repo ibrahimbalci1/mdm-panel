@@ -86,26 +86,25 @@ export default function MDMDashboard() {
     setApiLoading(false);
   };
 
-  const generateQr = async (policyId = null) => {
-    setQrLoading(true);
-    setQrData(null);
-    try {
-      const url = policyId
-        ? `${API_URL}/enrollment/qr?policy_id=${policyId}`
-        : `${API_URL}/enrollment/qr`;
-      const resp = await fetch(url, { headers: authHeaders() });
-      if (resp.ok) {
-        const data = await resp.json();
-        setQrData(data);
-        showToast("QR kod oluşturuldu");
-      } else {
-        showToast("QR oluşturulamadı", "error");
-      }
-    } catch {
-      showToast("Bağlantı hatası", "error");
+const generateQr = async (policyId = null, type = "provisioning") => {
+  setQrLoading(true);
+  setQrData(null);
+  try {
+    const endpoint = type === "simple"
+      ? `${API_URL}/enrollment/qr/simple`
+      : `${API_URL}/enrollment/qr`;
+    const url = policyId ? `${endpoint}?policy_id=${policyId}` : endpoint;
+    const resp = await fetch(url, { headers: authHeaders() });
+    if (resp.ok) {
+      const data = await resp.json();
+      setQrData({ ...data, type });
+      showToast("QR kod oluşturuldu");
     }
-    setQrLoading(false);
-  };
+  } catch {
+    showToast("QR oluşturulamadı", "error");
+  }
+  setQrLoading(false);
+};
 
   useEffect(() => { if (token) fetchAll(); }, [token]);
 
