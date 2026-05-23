@@ -2,11 +2,6 @@ import { useState, useEffect } from "react";
 
 const API_URL = "https://mdm-backend-rk5x.onrender.com/api/v1";
 
-const MOCK_POLICIES = [
-  { id: "p001", name: "Kurumsal", device_count: 0, rules: { "Şifre zorunlu (8+ karakter)": true, "Ekran kilidi: 30 sn": true, "VPN zorunlu": true }, created_at: "2024-01-01" },
-  { id: "p002", name: "Saha Ekibi", device_count: 0, rules: { "Şifre zorunlu (6+ karakter)": true, "GPS zorunlu": true }, created_at: "2024-01-15" },
-];
-
 const MOCK_APPS = [
   { id: "a001", name: "Şirket Portalı", package_name: "com.sirket.portal", version: "3.2.1", install_count: 0, is_required: true },
   { id: "a002", name: "Teams", package_name: "com.microsoft.teams", version: "1416/1.0.0", install_count: 0, is_required: true },
@@ -25,7 +20,7 @@ export default function MDMDashboard() {
 
   const [tab, setTab] = useState("overview");
   const [devices, setDevices] = useState([]);
-  const [policies, setPolicies] = useState(MOCK_POLICIES);
+  const [policies, setPolicies] = useState([]);
   const [apps, setApps] = useState(MOCK_APPS);
   const [stats, setStats] = useState({ total_devices: 0, online_devices: 0, offline_devices: 0, locked_devices: 0, non_compliant_devices: 0, pending_commands: 0, total_policies: 0, total_managed_apps: 0 });
   const [selectedDevice, setSelectedDevice] = useState(null);
@@ -36,13 +31,13 @@ export default function MDMDashboard() {
   const [pendingCommand, setPendingCommand] = useState(null);
   const [toast, setToast] = useState(null);
   const [apiLoading, setApiLoading] = useState(false);
+  const [qrData, setQrData] = useState(null);
+  const [qrLoading, setQrLoading] = useState(false);
 
   const showToast = (msg, type = "success") => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3500);
   };
-
-  // ─── Auth ─────────────────────────────────────────────────────────────────
 
   const login = async () => {
     setLoginLoading(true);
@@ -61,7 +56,7 @@ export default function MDMDashboard() {
         setLoginError("E-posta veya şifre hatalı");
       }
     } catch {
-      setLoginError("Sunucuya bağlanılamadı. Lütfen bekleyin (soğuk başlatma ~60 sn sürebilir)");
+      setLoginError("Sunucuya bağlanılamadı. Lütfen bekleyin (~60 sn soğuk başlatma)");
     }
     setLoginLoading(false);
   };
@@ -70,11 +65,10 @@ export default function MDMDashboard() {
     localStorage.removeItem("mdm_token");
     setToken(null);
     setDevices([]);
+    setQrData(null);
   };
 
   const authHeaders = () => ({ Authorization: `Bearer ${token}`, "Content-Type": "application/json" });
-
-  // ─── API Çağrıları ────────────────────────────────────────────────────────
 
   const fetchAll = async () => {
     setApiLoading(true);
@@ -92,15 +86,33 @@ export default function MDMDashboard() {
     setApiLoading(false);
   };
 
-  useEffect(() => { if (token) fetchAll(); }, [token]);
+  const generateQr = async (policyId = null) => {
+    setQrLoading(true);
+    setQrData(null);
+    try {
+      const url = policyId
+        ? `${API_URL}/enrollment/qr?policy_id=${policyId}`
+        : `${API_URL}/enrollment/qr`;
+      const resp = await fetch(url, { headers: authHeaders() });
+      if (resp.ok) {
+        const data = await resp.json();
+        setQrData(data);
+        showToast("QR kod oluşturuldu");
+      } else {
+        showToast("QR oluşturulamadı", "error");
+      }
+    } catch {
+      showToast("Bağlantı hatası", "error");
+    }
+    setQrLoading(false);
+  };
 
-  // ─── Komut Gönder ─────────────────────────────────────────────────────────
+  useEffect(() => { if (token) fetchAll(); }, [token]);
 
   const sendCommand = async (device, cmd) => {
     const cmdMap = { lock: "Cihaz Kilitle", unlock: "Kilidi Aç", wipe: "Fabrika Sıfırla", reboot: "Yeniden Başlat", locate: "Konum Al", push_policy: "Politika Gönder" };
     setShowCommandModal(false);
     setPendingCommand(null);
-
     try {
       const resp = await fetch(`${API_URL}/commands/device/${device.id}`, {
         method: "POST",
@@ -116,17 +128,14 @@ export default function MDMDashboard() {
         status: success ? "Gönderildi" : "Başarısız",
         ok: success,
       }, ...prev.slice(0, 19)]);
-
       if (success) {
-        showToast(`"${cmdMap[cmd]}" komutu gönderildi → ${device.name || device.model}`);
+        showToast(`"${cmdMap[cmd]}" komutu gönderildi`);
         if (cmd === "lock") setDevices(prev => prev.map(d => d.id === device.id ? { ...d, status: "locked" } : d));
         if (cmd === "wipe") setDevices(prev => prev.map(d => d.id === device.id ? { ...d, status: "wiped" } : d));
       } else {
         showToast("Komut gönderilemedi", "error");
       }
-    } catch {
-      showToast("Bağlantı hatası", "error");
-    }
+    } catch { showToast("Bağlantı hatası", "error"); }
   };
 
   const filteredDevices = devices.filter(d => {
@@ -138,7 +147,6 @@ export default function MDMDashboard() {
   });
 
   // ─── Giriş Ekranı ─────────────────────────────────────────────────────────
-
   if (!token) return (
     <div style={{ fontFamily: "'DM Sans', system-ui", background: "#0f1117", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&display=swap'); * { box-sizing: border-box; margin: 0; padding: 0; }`}</style>
@@ -162,17 +170,13 @@ export default function MDMDashboard() {
         </div>
         {loginError && <div style={{ color: "#f87171", fontSize: 12, marginBottom: 16, textAlign: "center", background: "#2d1a1a", padding: "8px 12px", borderRadius: 8 }}>{loginError}</div>}
         <button onClick={login} disabled={loginLoading}
-          style={{ width: "100%", background: loginLoading ? "#2a3048" : "#3b5499", border: "none", borderRadius: 8, padding: "12px", color: "#fff", fontSize: 14, fontWeight: 600, cursor: loginLoading ? "not-allowed" : "pointer", fontFamily: "inherit", transition: "background .2s" }}>
+          style={{ width: "100%", background: loginLoading ? "#2a3048" : "#3b5499", border: "none", borderRadius: 8, padding: "12px", color: "#fff", fontSize: 14, fontWeight: 600, cursor: loginLoading ? "not-allowed" : "pointer", fontFamily: "inherit" }}>
           {loginLoading ? "⏳ Bağlanıyor..." : "Giriş Yap"}
         </button>
-        <div style={{ textAlign: "center", marginTop: 20, fontSize: 11, color: "#475569" }}>
-          İlk açılışta sunucu ~60 saniye uyandırma süresi olabilir
-        </div>
+        <div style={{ textAlign: "center", marginTop: 16, fontSize: 11, color: "#475569" }}>İlk açılışta ~60 sn uyandırma süresi olabilir</div>
       </div>
     </div>
   );
-
-  // ─── Ana Panel ────────────────────────────────────────────────────────────
 
   return (
     <div style={{ fontFamily: "'DM Sans', system-ui, sans-serif", background: "#0f1117", minHeight: "100vh", color: "#e2e8f0" }}>
@@ -198,11 +202,9 @@ export default function MDMDashboard() {
         .tag { display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: 11px; font-weight: 500; }
         .progress-bar { height: 5px; border-radius: 3px; background: #2a3048; overflow: hidden; }
         .progress-fill { height: 100%; border-radius: 3px; transition: width .4s; }
-        nav button:hover { background: #1e2130 !important; color: #e2e8f0 !important; }
       `}</style>
 
       <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
-
         {/* Sidebar */}
         <div style={{ width: 220, background: "#0d0f18", borderRight: "1px solid #1e2130", display: "flex", flexDirection: "column", flexShrink: 0 }}>
           <div style={{ padding: "22px 20px 18px", borderBottom: "1px solid #1e2130" }}>
@@ -217,11 +219,12 @@ export default function MDMDashboard() {
 
           <nav style={{ padding: "12px 10px", flex: 1 }}>
             {[
-              { id: "overview", icon: "⬡", label: "Genel Bakış" },
-              { id: "devices",  icon: "📱", label: "Cihazlar",  badge: stats.total_devices },
+              { id: "overview", icon: "⬡",  label: "Genel Bakış" },
+              { id: "devices",  icon: "📱", label: "Cihazlar",       badge: stats.total_devices || null },
               { id: "policies", icon: "🛡️", label: "Politikalar" },
               { id: "apps",     icon: "📦", label: "Uygulamalar" },
-              { id: "logs",     icon: "📋", label: "Komut Geçmişi", badge: commandLog.length || null },
+              { id: "qr",       icon: "📷", label: "QR Kayıt" },
+              { id: "logs",     icon: "📋", label: "Komut Geçmişi",  badge: commandLog.length || null },
             ].map(item => (
               <button key={item.id} onClick={() => setTab(item.id)}
                 style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "9px 12px", borderRadius: 8, border: "none", background: tab === item.id ? "#1e2340" : "transparent", color: tab === item.id ? "#60a5fa" : "#8892a4", fontSize: 13, fontFamily: "inherit", fontWeight: 500, cursor: "pointer", marginBottom: 2, textAlign: "left", transition: "all .15s" }}>
@@ -238,12 +241,8 @@ export default function MDMDashboard() {
               <span style={{ fontSize: 12, color: "#94a3b8" }}>API Çevrimiçi</span>
               {apiLoading && <span style={{ fontSize: 11, color: "#64748b", marginLeft: "auto" }}>⟳</span>}
             </div>
-            <button onClick={fetchAll} style={{ background: "#1e2130", border: "1px solid #2a3048", borderRadius: 6, padding: "5px 10px", color: "#64748b", fontSize: 11, cursor: "pointer", fontFamily: "inherit", width: "100%", marginBottom: 6 }}>
-              🔄 Yenile
-            </button>
-            <button onClick={logout} style={{ background: "none", border: "1px solid #2a3048", borderRadius: 6, padding: "5px 10px", color: "#64748b", fontSize: 11, cursor: "pointer", fontFamily: "inherit", width: "100%" }}>
-              Çıkış Yap
-            </button>
+            <button onClick={fetchAll} style={{ background: "#1e2130", border: "1px solid #2a3048", borderRadius: 6, padding: "5px 10px", color: "#64748b", fontSize: 11, cursor: "pointer", fontFamily: "inherit", width: "100%", marginBottom: 6 }}>🔄 Yenile</button>
+            <button onClick={logout} style={{ background: "none", border: "1px solid #2a3048", borderRadius: 6, padding: "5px 10px", color: "#64748b", fontSize: 11, cursor: "pointer", fontFamily: "inherit", width: "100%" }}>Çıkış Yap</button>
           </div>
         </div>
 
@@ -252,7 +251,7 @@ export default function MDMDashboard() {
           <div style={{ padding: "16px 28px", borderBottom: "1px solid #1e2130", background: "#0d0f18", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
             <div>
               <div style={{ fontSize: 18, fontWeight: 600, color: "#f1f5f9" }}>
-                {{ overview: "Genel Bakış", devices: "Cihaz Yönetimi", policies: "Politika Yönetimi", apps: "Uygulama Yönetimi", logs: "Komut Geçmişi" }[tab]}
+                {{ overview: "Genel Bakış", devices: "Cihaz Yönetimi", policies: "Politika Yönetimi", apps: "Uygulama Yönetimi", qr: "QR Kayıt", logs: "Komut Geçmişi" }[tab]}
               </div>
               <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Son güncelleme: {new Date().toLocaleString("tr-TR")}</div>
             </div>
@@ -270,11 +269,11 @@ export default function MDMDashboard() {
               <div>
                 <div style={{ display: "flex", gap: 16, marginBottom: 28 }}>
                   {[
-                    { label: "Toplam Cihaz",  val: stats.total_devices,        color: "#60a5fa", icon: "📱" },
-                    { label: "Çevrimiçi",     val: stats.online_devices,       color: "#22c55e", icon: "🟢" },
-                    { label: "Çevrimdışı",    val: stats.offline_devices,      color: "#6b7280", icon: "⚫" },
+                    { label: "Toplam Cihaz",  val: stats.total_devices,         color: "#60a5fa", icon: "📱" },
+                    { label: "Çevrimiçi",     val: stats.online_devices,        color: "#22c55e", icon: "🟢" },
+                    { label: "Çevrimdışı",    val: stats.offline_devices,       color: "#6b7280", icon: "⚫" },
                     { label: "Uyumsuz",       val: stats.non_compliant_devices, color: "#f87171", icon: "⚠️" },
-                    { label: "Kilitli",       val: stats.locked_devices,       color: "#f59e0b", icon: "🔒" },
+                    { label: "Kilitli",       val: stats.locked_devices,        color: "#f59e0b", icon: "🔒" },
                   ].map(s => (
                     <div key={s.label} className="stat-card" style={{ textAlign: "center" }}>
                       <div style={{ fontSize: 24, marginBottom: 8 }}>{s.icon}</div>
@@ -283,7 +282,6 @@ export default function MDMDashboard() {
                     </div>
                   ))}
                 </div>
-
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
                   <div style={{ background: "#161925", borderRadius: 14, border: "1px solid #1e2130", padding: 20 }}>
                     <div style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9", marginBottom: 16 }}>Son Aktif Cihazlar</div>
@@ -305,12 +303,11 @@ export default function MDMDashboard() {
                       <div style={{ color: "#64748b", fontSize: 13, padding: "20px 0", textAlign: "center" }}>Çevrimiçi cihaz yok</div>
                     )}
                   </div>
-
                   <div style={{ background: "#161925", borderRadius: 14, border: "1px solid #1e2130", padding: 20 }}>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9", marginBottom: 16 }}>Uyumluluk Özeti</div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9", marginBottom: 16 }}>Uyumluluk & İstatistik</div>
                     {[
-                      { label: "Uyumlu",   val: devices.filter(d => d.is_compliant !== false).length, color: "#22c55e" },
-                      { label: "Uyumsuz",  val: devices.filter(d => d.is_compliant === false).length, color: "#f87171" },
+                      { label: "Uyumlu",  val: devices.filter(d => d.is_compliant !== false).length, color: "#22c55e" },
+                      { label: "Uyumsuz", val: devices.filter(d => d.is_compliant === false).length,  color: "#f87171" },
                     ].map(item => (
                       <div key={item.label} style={{ marginBottom: 16 }}>
                         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
@@ -322,8 +319,8 @@ export default function MDMDashboard() {
                         </div>
                       </div>
                     ))}
-                    <div style={{ marginTop: 20, padding: "14px", background: "#0f1117", borderRadius: 10 }}>
-                      <div style={{ fontSize: 12, color: "#64748b", marginBottom: 8 }}>Bekleyen Komutlar</div>
+                    <div style={{ marginTop: 16, padding: 14, background: "#0f1117", borderRadius: 10 }}>
+                      <div style={{ fontSize: 12, color: "#64748b", marginBottom: 6 }}>Bekleyen Komutlar</div>
                       <div style={{ fontSize: 28, fontWeight: 700, color: "#f59e0b", fontFamily: "monospace" }}>{stats.pending_commands}</div>
                     </div>
                   </div>
@@ -343,18 +340,15 @@ export default function MDMDashboard() {
                       <option value="online">Çevrimiçi</option>
                       <option value="offline">Çevrimdışı</option>
                       <option value="locked">Kilitli</option>
-                      <option value="pending">Bekliyor</option>
                     </select>
                   </div>
-
                   <div className="device-row" style={{ background: "#0d0f18", color: "#64748b", fontWeight: 600, fontSize: 11, letterSpacing: "0.05em", textTransform: "uppercase", cursor: "default", borderRadius: "10px 10px 0 0", border: "1px solid #1e2130", borderBottom: "none" }}>
                     <span>Cihaz / Kullanıcı</span><span>Model / OS</span><span>Durum</span><span>Batarya</span><span>Depolama</span><span>Kayıt</span><span>İşlem</span>
                   </div>
-
                   <div style={{ border: "1px solid #1e2130", borderRadius: "0 0 10px 10px", overflow: "hidden" }}>
                     {filteredDevices.length === 0 ? (
                       <div style={{ padding: "50px", textAlign: "center", color: "#64748b", background: "#0d0f18", fontSize: 13 }}>
-                        {devices.length === 0 ? "Henüz kayıtlı cihaz yok. Android agent'ı yükleyerek başlayın." : "Sonuç bulunamadı"}
+                        {devices.length === 0 ? "Kayıtlı cihaz yok. QR Kayıt sekmesinden cihaz ekleyin." : "Sonuç bulunamadı"}
                       </div>
                     ) : filteredDevices.map(device => (
                       <div key={device.id} className={`device-row ${selectedDevice?.id === device.id ? "selected" : ""}`}
@@ -377,11 +371,7 @@ export default function MDMDashboard() {
                             <div className="progress-fill" style={{ width: `${device.battery_level}%`, background: device.battery_level < 20 ? "#ef4444" : device.battery_level < 50 ? "#f59e0b" : "#22c55e" }} />
                           </div>
                         </div>
-                        <div>
-                          <div style={{ fontSize: 12, color: device.storage_total_gb > 0 && (device.storage_used_gb / device.storage_total_gb) > 0.85 ? "#f87171" : "#94a3b8", fontFamily: "monospace" }}>
-                            {device.storage_used_gb}/{device.storage_total_gb} GB
-                          </div>
-                        </div>
+                        <div style={{ fontSize: 12, color: "#94a3b8", fontFamily: "monospace" }}>{device.storage_used_gb}/{device.storage_total_gb} GB</div>
                         <div style={{ fontSize: 11, color: "#64748b" }}>{device.enrolled_at ? new Date(device.enrolled_at).toLocaleDateString("tr-TR") : "—"}</div>
                         <div style={{ display: "flex", gap: 6 }}>
                           <button className="cmd-btn" onClick={e => { e.stopPropagation(); setPendingCommand({ device, cmd: "lock" }); setShowCommandModal(true); }} title="Kilitle">🔒</button>
@@ -403,18 +393,18 @@ export default function MDMDashboard() {
                       <div style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9" }}>{selectedDevice.name || `${selectedDevice.manufacturer} ${selectedDevice.model}`}</div>
                       <div style={{ fontSize: 12, color: "#64748b" }}>{selectedDevice.owner_name || "—"}</div>
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 8 }}>
-                        <div style={{ width: 8, height: 8, borderRadius: "50%", background: statusColor(selectedDevice.status), boxShadow: selectedDevice.status === "online" ? `0 0 6px ${statusColor(selectedDevice.status)}` : "none" }}></div>
+                        <div style={{ width: 8, height: 8, borderRadius: "50%", background: statusColor(selectedDevice.status) }}></div>
                         <span style={{ fontSize: 12, color: statusColor(selectedDevice.status) }}>{statusLabel(selectedDevice.status)}</span>
                       </div>
                     </div>
                     {[
-                      ["Model",      selectedDevice.model],
-                      ["Üretici",    selectedDevice.manufacturer],
-                      ["Android",    selectedDevice.android_version],
-                      ["Seri No",    selectedDevice.serial_number],
-                      ["Batarya",    `%${selectedDevice.battery_level}`],
-                      ["Depolama",   `${selectedDevice.storage_used_gb}/${selectedDevice.storage_total_gb} GB`],
-                      ["Uyumluluk",  selectedDevice.is_compliant ? "✓ Uyumlu" : "✗ Uyumsuz"],
+                      ["Model",     selectedDevice.model],
+                      ["Üretici",   selectedDevice.manufacturer],
+                      ["Android",   selectedDevice.android_version],
+                      ["Batarya",   `%${selectedDevice.battery_level}`],
+                      ["Depolama",  `${selectedDevice.storage_used_gb}/${selectedDevice.storage_total_gb} GB`],
+                      ["Politika",  selectedDevice.policy_name || "—"],
+                      ["Uyumluluk", selectedDevice.is_compliant ? "✓ Uyumlu" : "✗ Uyumsuz"],
                     ].map(([k, v]) => (
                       <div key={k} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: "1px solid #1e2130", fontSize: 12 }}>
                         <span style={{ color: "#64748b" }}>{k}</span>
@@ -455,10 +445,13 @@ export default function MDMDashboard() {
                         <div style={{ fontSize: 15, fontWeight: 600, color: "#f1f5f9" }}>{policy.name}</div>
                         <div style={{ fontSize: 12, color: "#64748b", marginTop: 3 }}>{policy.device_count || 0} cihaz</div>
                       </div>
-                      <button className="cmd-btn" style={{ fontSize: 12 }} onClick={() => showToast(`"${policy.name}" politikası cihazlara gönderildi`)}>📤 Gönder</button>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button className="cmd-btn" style={{ fontSize: 12 }} onClick={() => { setTab("qr"); generateQr(policy.id); }}>📷 QR Oluştur</button>
+                        <button className="cmd-btn" style={{ fontSize: 12 }} onClick={() => showToast(`"${policy.name}" politikası gönderildi`)}>📤 Gönder</button>
+                      </div>
                     </div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                      {policy.rules && typeof policy.rules === "object" && Object.entries(policy.rules).map(([k, v]) => (
+                      {policy.rules && Object.entries(policy.rules).map(([k, v]) => (
                         <span key={k} className="tag" style={{ background: "#1e2340", color: "#94a3b8", padding: "4px 12px", fontSize: 12 }}>
                           ✓ {k}{typeof v !== "boolean" ? `: ${v}` : ""}
                         </span>
@@ -467,47 +460,97 @@ export default function MDMDashboard() {
                   </div>
                 ))}
                 {policies.length === 0 && (
-                  <div style={{ color: "#64748b", fontSize: 13, textAlign: "center", padding: "40px" }}>Henüz politika yok. Swagger'dan politika oluşturabilirsiniz.</div>
+                  <div style={{ color: "#64748b", fontSize: 13, textAlign: "center", padding: "40px" }}>Politika yok.</div>
                 )}
               </div>
             )}
 
             {/* APPS */}
             {tab === "apps" && (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
+                {apps.map(app => (
+                  <div key={app.id} style={{ background: "#161925", borderRadius: 14, border: "1px solid #1e2130", padding: 20 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+                      <div style={{ width: 44, height: 44, borderRadius: 12, background: "#1e2340", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>📦</div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9" }}>{app.name}</div>
+                        <div style={{ fontSize: 10, color: "#64748b", fontFamily: "monospace" }}>{app.package_name}</div>
+                      </div>
+                      {app.is_required && <span className="tag" style={{ background: "#1a2d1a", color: "#4ade80", fontSize: 10 }}>Zorunlu</span>}
+                    </div>
+                    <div style={{ fontSize: 12, color: "#64748b", marginBottom: 8 }}>Sürüm: <span style={{ color: "#94a3b8", fontFamily: "monospace" }}>{app.version || "—"}</span></div>
+                    <button className="cmd-btn" style={{ width: "100%", fontSize: 11, marginTop: 8 }} onClick={() => showToast(`"${app.name}" dağıtım isteği gönderildi`)}>📤 Dağıt</button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* QR KAYIT */}
+            {tab === "qr" && (
               <div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
-                  {apps.map(app => (
-                    <div key={app.id} style={{ background: "#161925", borderRadius: 14, border: "1px solid #1e2130", padding: 20 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
-                        <div style={{ width: 44, height: 44, borderRadius: 12, background: "#1e2340", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>📦</div>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9" }}>{app.name}</div>
-                          <div style={{ fontSize: 10, color: "#64748b", fontFamily: "monospace" }}>{app.package_name}</div>
-                        </div>
-                        {app.is_required && <span className="tag" style={{ background: "#1a2d1a", color: "#4ade80", fontSize: 10 }}>Zorunlu</span>}
-                      </div>
-                      <div style={{ fontSize: 12, color: "#64748b", marginBottom: 8 }}>Sürüm: <span style={{ color: "#94a3b8", fontFamily: "monospace" }}>{app.version || "—"}</span></div>
-                      <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
-                        <button className="cmd-btn" style={{ flex: 1, fontSize: 11 }} onClick={() => showToast(`"${app.name}" dağıtım isteği gönderildi`)}>📤 Dağıt</button>
-                        <button className="cmd-btn danger" style={{ fontSize: 11 }} onClick={() => showToast(`"${app.name}" kaldırma isteği gönderildi`)}>🗑️</button>
-                      </div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+                  <div>
+                    <div style={{ fontSize: 15, fontWeight: 600, color: "#f1f5f9" }}>QR Kod ile Cihaz Kaydı</div>
+                    <div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>Telefonda MDM Agent'ı açın → QR Tara → Otomatik kayıt</div>
+                  </div>
+                  <button onClick={() => generateQr()} disabled={qrLoading}
+                    style={{ background: "#3b5499", border: "none", borderRadius: 8, padding: "10px 20px", color: "#fff", fontSize: 13, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>
+                    {qrLoading ? "⏳ Oluşturuluyor..." : "🔄 Yeni QR Oluştur"}
+                  </button>
+                </div>
+
+                {/* Politikaya göre QR butonları */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 16, marginBottom: 28 }}>
+                  <div style={{ background: "#161925", borderRadius: 14, border: "1px solid #1e2130", padding: 20 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9", marginBottom: 6 }}>Varsayılan Politika</div>
+                    <div style={{ fontSize: 12, color: "#64748b", marginBottom: 16 }}>Temel kısıtlamalarla kayıt</div>
+                    <button onClick={() => generateQr(null)} disabled={qrLoading}
+                      style={{ background: "#1e2340", border: "1px solid #3b5499", borderRadius: 8, padding: "8px 16px", color: "#60a5fa", fontSize: 13, cursor: "pointer", fontFamily: "inherit", width: "100%" }}>
+                      📷 QR Oluştur
+                    </button>
+                  </div>
+                  {policies.map(policy => (
+                    <div key={policy.id} style={{ background: "#161925", borderRadius: 14, border: "1px solid #1e2130", padding: 20 }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9", marginBottom: 6 }}>{policy.name}</div>
+                      <div style={{ fontSize: 12, color: "#64748b", marginBottom: 16 }}>{policy.device_count || 0} cihaz bu politikada</div>
+                      <button onClick={() => generateQr(policy.id)} disabled={qrLoading}
+                        style={{ background: "#1e2340", border: "1px solid #3b5499", borderRadius: 8, padding: "8px 16px", color: "#60a5fa", fontSize: 13, cursor: "pointer", fontFamily: "inherit", width: "100%" }}>
+                        📷 QR Oluştur
+                      </button>
                     </div>
                   ))}
                 </div>
+
+                {/* QR Görüntüle */}
+                {qrData && (
+                  <div style={{ background: "#161925", borderRadius: 14, border: "1px solid #1e2130", padding: 40, textAlign: "center" }}>
+                    <div style={{ fontSize: 16, fontWeight: 600, color: "#f1f5f9", marginBottom: 6 }}>📷 Kayıt QR Kodu</div>
+                    <div style={{ fontSize: 12, color: "#64748b", marginBottom: 28 }}>
+                      Geçerlilik: {new Date(qrData.expires_at).toLocaleString("tr-TR")} (24 saat)
+                    </div>
+                    <div style={{ display: "inline-block", background: "white", padding: 16, borderRadius: 12 }}>
+                      <img src={qrData.qr_image} alt="QR Kod" style={{ width: 240, height: 240, display: "block" }} />
+                    </div>
+                    <div style={{ marginTop: 24, fontSize: 13, color: "#64748b", lineHeight: 1.8 }}>
+                      1. Telefonda <strong style={{ color: "#60a5fa" }}>MDM Agent</strong> uygulamasını aç<br />
+                      2. <strong style={{ color: "#60a5fa" }}>"QR ile Kayıt"</strong> butonuna bas<br />
+                      3. Kamerayı QR koda tut → Otomatik kayıt başlar
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
             {/* LOGS */}
             {tab === "logs" && (
               <div style={{ background: "#161925", borderRadius: 14, border: "1px solid #1e2130", overflow: "hidden" }}>
-                <div style={{ padding: "16px 20px", borderBottom: "1px solid #1e2130", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ padding: "16px 20px", borderBottom: "1px solid #1e2130", display: "flex", justifyContent: "space-between" }}>
                   <span style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9" }}>Komut Geçmişi</span>
                   <span style={{ fontSize: 12, color: "#64748b" }}>{commandLog.length} kayıt</span>
                 </div>
                 {commandLog.length === 0 ? (
                   <div style={{ padding: "60px 20px", textAlign: "center", color: "#64748b", fontSize: 13 }}>
-                    Henüz komut gönderilmedi.<br />
-                    <span style={{ fontSize: 12 }}>Cihazlar sekmesinden uzak komut göndererek başlayın.</span>
+                    Henüz komut gönderilmedi.
                   </div>
                 ) : commandLog.map(log => (
                   <div key={log.id} style={{ display: "flex", alignItems: "center", gap: 16, padding: "14px 20px", borderBottom: "1px solid #1e2130", fontSize: 13 }}>
@@ -522,11 +565,11 @@ export default function MDMDashboard() {
                 ))}
               </div>
             )}
-
           </div>
         </div>
       </div>
 
+      {/* Komut Onay Modal */}
       {showCommandModal && pendingCommand && (
         <div className="modal-overlay" onClick={() => { setShowCommandModal(false); setPendingCommand(null); }}>
           <div className="modal" onClick={e => e.stopPropagation()}>
@@ -536,8 +579,8 @@ export default function MDMDashboard() {
             <div style={{ fontSize: 13, color: "#94a3b8", marginBottom: 22, lineHeight: 1.6 }}>
               <strong style={{ color: "#e2e8f0" }}>{pendingCommand.device.name || pendingCommand.device.model}</strong> cihazına{" "}
               {pendingCommand.cmd === "wipe"
-                ? <span style={{ color: "#f87171" }}>fabrika ayarlarına sıfırlama komutu gönderilecek. Tüm veriler silinecek!</span>
-                : pendingCommand.cmd === "lock" ? "kilitleme komutu gönderilecek." : `"${pendingCommand.cmd}" komutu gönderilecek.`}
+                ? <span style={{ color: "#f87171" }}>fabrika sıfırlama komutu gönderilecek. Tüm veriler silinecek!</span>
+                : `"${pendingCommand.cmd}" komutu gönderilecek.`}
             </div>
             <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
               <button className="cmd-btn" onClick={() => { setShowCommandModal(false); setPendingCommand(null); }}>İptal</button>
@@ -550,6 +593,7 @@ export default function MDMDashboard() {
         </div>
       )}
 
+      {/* Toast */}
       {toast && (
         <div style={{ position: "fixed", bottom: 28, right: 28, background: toast.type === "error" ? "#2d1a1a" : "#1e2340", border: `1px solid ${toast.type === "error" ? "#7c2626" : "#3b5499"}`, borderRadius: 10, padding: "12px 20px", color: toast.type === "error" ? "#f87171" : "#60a5fa", fontSize: 13, zIndex: 200, maxWidth: 380, boxShadow: "0 8px 30px rgba(0,0,0,.5)" }}>
           {toast.type === "error" ? "❌" : "✅"} {toast.msg}
