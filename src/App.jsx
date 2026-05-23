@@ -1,34 +1,111 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import React from "react";
 
-const MOCK_DEVICES = [
-  { id: "d001", name: "Samsung Galaxy S23", user: "Ahmet Yılmaz", model: "SM-S911B", os: "Android 14", status: "online", battery: 78, storage: 62, lastSeen: "Şimdi", enrolled: "2024-01-15", policy: "Kurumsal", location: "Ankara", compliance: true, apps: 42 },
-  { id: "d002", name: "Xiaomi Redmi Note 12", user: "Mehmet Demir", model: "23021RAAEG", os: "Android 13", status: "online", battery: 45, storage: 81, lastSeen: "2 dk önce", enrolled: "2024-02-08", policy: "Saha Ekibi", location: "İstanbul", compliance: true, apps: 31 },
-  { id: "d003", name: "Huawei P60 Pro", user: "Ayşe Kaya", model: "ALN-L29", os: "Android 12", status: "offline", battery: 12, storage: 44, lastSeen: "3 saat önce", enrolled: "2023-11-22", policy: "Yönetici", location: "İzmir", compliance: false, apps: 58 },
-  { id: "d004", name: "Oppo Find X6", user: "Fatma Çelik", model: "CPH2525", os: "Android 14", status: "online", battery: 91, storage: 28, lastSeen: "Şimdi", enrolled: "2024-03-01", policy: "Kurumsal", location: "Bursa", compliance: true, apps: 27 },
-  { id: "d005", name: "Samsung Galaxy A54", user: "Ali Öztürk", model: "SM-A546B", os: "Android 13", status: "locked", battery: 55, storage: 70, lastSeen: "1 saat önce", enrolled: "2023-12-10", policy: "Saha Ekibi", location: "Ankara", compliance: false, apps: 19 },
-  { id: "d006", name: "Pixel 8 Pro", user: "Zeynep Arslan", model: "GC3VE", os: "Android 14", status: "online", battery: 67, storage: 35, lastSeen: "5 dk önce", enrolled: "2024-01-30", policy: "Yönetici", location: "İstanbul", compliance: true, apps: 63 },
-];
-
-const MOCK_POLICIES = [
-  { id: "p001", name: "Kurumsal", devices: 28, rules: ["Şifre zorunlu (8+ karakter)", "Ekran kilidi: 30 sn", "VPN zorunlu", "Kamera kısıtlı", "USB hata ayıklama kapalı"], created: "2024-01-01" },
-  { id: "p002", name: "Saha Ekibi", devices: 47, rules: ["Şifre zorunlu (6+ karakter)", "Ekran kilidi: 2 dk", "GPS zorunlu", "Wi-Fi kısıtlı"], created: "2024-01-15" },
-  { id: "p003", name: "Yönetici", devices: 12, rules: ["Biyometrik giriş", "Uzaktan erişim açık", "Tüm uygulamalar izinli"], created: "2024-02-01" },
-];
+const API_URL = "https://mdm-backend-rk5x.onrender.com/api/v1";
 
 const MOCK_APPS = [
-  { id: "a001", name: "Şirket Portalı", package: "com.sirket.portal", version: "3.2.1", installed: 87, required: true },
-  { id: "a002", name: "Teams", package: "com.microsoft.teams", version: "1416/1.0.0", installed: 72, required: true },
-  { id: "a003", name: "Google Chrome", package: "com.android.chrome", version: "120.0.6099", installed: 87, required: false },
-  { id: "a004", name: "Zoom", package: "us.zoom.videomeetings", version: "5.16.10", installed: 45, required: false },
-  { id: "a005", name: "SAP Fiori", package: "com.sap.fiori", version: "3.8.0", installed: 28, required: true },
+  { id: "a001", name: "Şirket Portalı", package_name: "com.sirket.portal", version: "3.2.1", is_required: true },
+  { id: "a002", name: "Teams", package_name: "com.microsoft.teams", version: "1416/1.0.0", is_required: true },
+  { id: "a003", name: "Google Chrome", package_name: "com.android.chrome", version: "120.0.6099", is_required: false },
 ];
 
-const statusColor = (s) => ({ online: "#22c55e", offline: "#6b7280", locked: "#f59e0b", wiped: "#ef4444" }[s] || "#6b7280");
-const statusLabel = (s) => ({ online: "Çevrimiçi", offline: "Çevrimdışı", locked: "Kilitli", wiped: "Silindi" }[s] || s);
+const statusColor = (s) => ({ online: "#22c55e", offline: "#6b7280", locked: "#f59e0b", wiped: "#ef4444", pending: "#818cf8" }[s] || "#6b7280");
+const statusLabel = (s) => ({ online: "Çevrimiçi", offline: "Çevrimdışı", locked: "Kilitli", wiped: "Silindi", pending: "Bekliyor" }[s] || s);
+const roleColor = (r) => ({ admin: "#f87171", operator: "#60a5fa", viewer: "#94a3b8" }[r] || "#94a3b8");
+const roleLabel = (r) => ({ admin: "Admin", operator: "Operatör", viewer: "Görüntüleyici" }[r] || r);
+
+
+// ─── Leaflet Harita Bileşeni ────────────────────────────────────────────────
+function MapView({ locations, onSelect, selected }) {
+  const mapRef = React.useRef(null);
+  const leafletMap = React.useRef(null);
+  const markersRef = React.useRef([]);
+
+  useEffect(() => {
+    if (!mapRef.current || leafletMap.current) return;
+
+    // Leaflet CSS yükle
+    if (!document.getElementById("leaflet-css")) {
+      const link = document.createElement("link");
+      link.id = "leaflet-css";
+      link.rel = "stylesheet";
+      link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+      document.head.appendChild(link);
+    }
+
+    // Leaflet JS yükle
+    const script = document.createElement("script");
+    script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+    script.onload = () => initMap();
+    document.head.appendChild(script);
+  }, []);
+
+  const initMap = () => {
+    if (!mapRef.current || leafletMap.current) return;
+    const L = window.L;
+    const center = locations.length > 0 ? [locations[0].lat, locations[0].lng] : [39.9, 32.8];
+    leafletMap.current = L.map(mapRef.current).setView(center, 10);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "© OpenStreetMap",
+      maxZoom: 18,
+    }).addTo(leafletMap.current);
+    addMarkers();
+  };
+
+  const addMarkers = () => {
+    if (!leafletMap.current || !window.L) return;
+    const L = window.L;
+    markersRef.current.forEach(m => m.remove());
+    markersRef.current = [];
+
+    locations.forEach(loc => {
+      const color = { online: "#22c55e", offline: "#6b7280", locked: "#f59e0b", wiped: "#ef4444" }[loc.status] || "#6b7280";
+      const icon = L.divIcon({
+        className: "",
+        html: `<div style="width:14px;height:14px;border-radius:50%;background:${color};border:2px solid white;box-shadow:0 0 6px ${color}"></div>`,
+        iconSize: [14, 14],
+        iconAnchor: [7, 7],
+      });
+      const marker = L.marker([loc.lat, loc.lng], { icon })
+        .addTo(leafletMap.current)
+        .bindPopup(`<b>${loc.name}</b><br>${loc.owner || ""}<br>🔋 %${loc.battery}`);
+      marker.on("click", () => onSelect(loc));
+      markersRef.current.push(marker);
+    });
+
+    if (locations.length > 1) {
+      const group = L.featureGroup(markersRef.current);
+      leafletMap.current.fitBounds(group.getBounds().pad(0.1));
+    }
+  };
+
+  useEffect(() => {
+    if (window.L && leafletMap.current) addMarkers();
+  }, [locations]);
+
+  useEffect(() => {
+    if (!selected || !leafletMap.current) return;
+    leafletMap.current.setView([selected.lat, selected.lng], 14);
+  }, [selected]);
+
+  return <div ref={mapRef} style={{ width: "100%", height: "100%", borderRadius: 14 }} />;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 
 export default function MDMDashboard() {
+  const [token, setToken] = useState(() => localStorage.getItem("mdm_token") || null);
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginError, setLoginError] = useState("");
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
   const [tab, setTab] = useState("overview");
-  const [devices, setDevices] = useState(MOCK_DEVICES);
+  const [devices, setDevices] = useState([]);
+  const [policies, setPolicies] = useState([]);
+  const [apps] = useState(MOCK_APPS);
+  const [users, setUsers] = useState([]);
+  const [stats, setStats] = useState({ total_devices: 0, online_devices: 0, offline_devices: 0, locked_devices: 0, non_compliant_devices: 0, pending_commands: 0 });
   const [selectedDevice, setSelectedDevice] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
@@ -36,145 +113,300 @@ export default function MDMDashboard() {
   const [showCommandModal, setShowCommandModal] = useState(false);
   const [pendingCommand, setPendingCommand] = useState(null);
   const [toast, setToast] = useState(null);
+  const [apiLoading, setApiLoading] = useState(false);
+  const [qrData, setQrData] = useState(null);
+  const [qrLoading, setQrLoading] = useState(false);
+  const [reports, setReports] = useState({ summary: null, battery: null, storage: null, commands: null, devices: [] });
+  const [reportsLoading, setReportsLoading] = useState(false);
+  const [users, setUsers] = useState([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [showUserModal, setShowUserModal] = useState(false);
+  const [newUser, setNewUser] = useState({ email: "", password: "", full_name: "", role: "operator" });
+  const [userError, setUserError] = useState("");
+  const [mapLocations, setMapLocations] = useState([]);
+  const [mapLoading, setMapLoading] = useState(false);
+  const [selectedMapDevice, setSelectedMapDevice] = useState(null);
+  const [showUserModal, setShowUserModal] = useState(false);
+  const [newUser, setNewUser] = useState({ email: "", password: "", full_name: "", role: "operator" });
+  const [userLoading, setUserLoading] = useState(false);
 
-  const showToast = (msg, type = "success") => {
-    setToast({ msg, type });
-    setTimeout(() => setToast(null), 3000);
+  const showToast = (msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3500); };
+  const authHeaders = () => ({ Authorization: `Bearer ${token}`, "Content-Type": "application/json" });
+
+  const login = async () => {
+    setLoginLoading(true); setLoginError("");
+    try {
+      const resp = await fetch(`${API_URL}/auth/login`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: `username=${encodeURIComponent(loginEmail)}&password=${encodeURIComponent(loginPassword)}` });
+      const data = await resp.json();
+      if (resp.ok) { localStorage.setItem("mdm_token", data.access_token); setToken(data.access_token); }
+      else setLoginError("E-posta veya şifre hatalı");
+    } catch { setLoginError("Sunucuya bağlanılamadı (~60 sn soğuk başlatma)"); }
+    setLoginLoading(false);
   };
 
-  const sendCommand = (device, cmd) => {
-    const cmdMap = {
-      lock: "Cihaz Kilitle",
-      unlock: "Kilidi Aç",
-      wipe: "Fabrika Ayarları",
-      reboot: "Yeniden Başlat",
-      locate: "Konumu Al",
-      push_policy: "Politika Gönder",
-    };
-    setCommandLog(prev => [{
-      id: Date.now(),
-      device: device.name,
-      cmd: cmdMap[cmd] || cmd,
-      time: new Date().toLocaleTimeString("tr-TR"),
-      status: "Gönderildi",
-    }, ...prev.slice(0, 9)]);
+  const logout = () => { localStorage.removeItem("mdm_token"); setToken(null); setDevices([]); setQrData(null); setCurrentUser(null); };
 
-    if (cmd === "lock") {
-      setDevices(prev => prev.map(d => d.id === device.id ? { ...d, status: "locked" } : d));
-    }
-    if (cmd === "wipe") {
-      setDevices(prev => prev.map(d => d.id === device.id ? { ...d, status: "wiped", compliance: false } : d));
-    }
-    showToast(`"${cmdMap[cmd]}" komutu gönderildi → ${device.name}`);
-    setShowCommandModal(false);
-    setPendingCommand(null);
+  const fetchAll = async () => {
+    setApiLoading(true);
+    try {
+      const [devResp, statsResp, polResp, meResp] = await Promise.all([
+        fetch(`${API_URL}/devices/`, { headers: authHeaders() }),
+        fetch(`${API_URL}/dashboard/stats`, { headers: authHeaders() }),
+        fetch(`${API_URL}/policies/`, { headers: authHeaders() }),
+        fetch(`${API_URL}/auth/me`, { headers: authHeaders() }),
+      ]);
+      if (devResp.status === 401) { logout(); return; }
+      if (devResp.ok) setDevices(await devResp.json());
+      if (statsResp.ok) setStats(await statsResp.json());
+      if (polResp.ok) setPolicies(await polResp.json());
+      if (meResp.ok) setCurrentUser(await meResp.json());
+    } catch { showToast("Veri yüklenemedi", "error"); }
+    setApiLoading(false);
   };
+
+  const fetchUsers = async () => {
+    try {
+      const resp = await fetch(`${API_URL}/auth/users`, { headers: authHeaders() });
+      if (resp.ok) setUsers(await resp.json());
+    } catch { showToast("Kullanıcılar yüklenemedi", "error"); }
+  };
+
+  const createUser = async () => {
+    if (!newUser.email || !newUser.password) { showToast("E-posta ve şifre zorunlu", "error"); return; }
+    setUserLoading(true);
+    try {
+      const resp = await fetch(`${API_URL}/auth/users`, { method: "POST", headers: authHeaders(), body: JSON.stringify(newUser) });
+      if (resp.ok) {
+        showToast("Kullanıcı oluşturuldu");
+        setShowUserModal(false);
+        setNewUser({ email: "", password: "", full_name: "", role: "operator" });
+        fetchUsers();
+      } else {
+        const err = await resp.json();
+        showToast(err.detail || "Kullanıcı oluşturulamadı", "error");
+      }
+    } catch { showToast("Bağlantı hatası", "error"); }
+    setUserLoading(false);
+  };
+
+  const fetchReports = async () => {
+    setReportsLoading(true);
+    try {
+      const [sumResp, batResp, stoResp, cmdResp, devResp] = await Promise.all([
+        fetch(`${API_URL}/reports/summary`, { headers: authHeaders() }),
+        fetch(`${API_URL}/reports/battery`, { headers: authHeaders() }),
+        fetch(`${API_URL}/reports/storage`, { headers: authHeaders() }),
+        fetch(`${API_URL}/reports/commands?days=7`, { headers: authHeaders() }),
+        fetch(`${API_URL}/reports/devices`, { headers: authHeaders() }),
+      ]);
+      setReports({
+        summary: sumResp.ok ? await sumResp.json() : null,
+        battery: batResp.ok ? await batResp.json() : null,
+        storage: stoResp.ok ? await stoResp.json() : null,
+        commands: cmdResp.ok ? await cmdResp.json() : null,
+        devices: devResp.ok ? await devResp.json() : [],
+      });
+    } catch { showToast("Raporlar yüklenemedi", "error"); }
+    setReportsLoading(false);
+  };
+
+  const fetchUsers = async () => {
+    setUsersLoading(true);
+    try {
+      const resp = await fetch(`${API_URL}/auth/users`, { headers: authHeaders() });
+      if (resp.ok) setUsers(await resp.json());
+    } catch { showToast("Kullanıcılar yüklenemedi", "error"); }
+    setUsersLoading(false);
+  };
+
+  const createUser = async () => {
+    setUserError("");
+    if (!newUser.email || !newUser.password) { setUserError("E-posta ve şifre zorunlu"); return; }
+    try {
+      const resp = await fetch(`${API_URL}/auth/users`, { method: "POST", headers: authHeaders(), body: JSON.stringify(newUser) });
+      if (resp.ok) {
+        showToast("Kullanıcı oluşturuldu");
+        setShowUserModal(false);
+        setNewUser({ email: "", password: "", full_name: "", role: "operator" });
+        fetchUsers();
+      } else {
+        const err = await resp.json();
+        setUserError(err.detail || "Hata oluştu");
+      }
+    } catch { setUserError("Bağlantı hatası"); }
+  };
+
+  const fetchMapLocations = async () => {
+    setMapLoading(true);
+    try {
+      const resp = await fetch(`${API_URL}/devices/locations/all`, { headers: authHeaders() });
+      if (resp.ok) setMapLocations(await resp.json());
+      else setMapLocations([]);
+    } catch { setMapLocations([]); }
+    setMapLoading(false);
+  };
+
+  const generateQr = async (policyId = null, type = "provisioning") => {
+    setQrLoading(true); setQrData(null);
+    try {
+      const endpoint = type === "simple" ? `${API_URL}/enrollment/qr/simple` : `${API_URL}/enrollment/qr`;
+      const url = policyId ? `${endpoint}?policy_id=${policyId}` : endpoint;
+      const resp = await fetch(url, { headers: authHeaders() });
+      if (resp.ok) { setQrData({ ...await resp.json(), type }); showToast("QR kod oluşturuldu"); }
+      else showToast("QR oluşturulamadı", "error");
+    } catch { showToast("Bağlantı hatası", "error"); }
+    setQrLoading(false);
+  };
+
+  const sendCommand = async (device, cmd) => {
+    const cmdMap = { lock: "Cihaz Kilitle", unlock: "Kilidi Aç", wipe: "Fabrika Sıfırla", reboot: "Yeniden Başlat", locate: "Konum Al", push_policy: "Politika Gönder" };
+    setShowCommandModal(false); setPendingCommand(null);
+    try {
+      const resp = await fetch(`${API_URL}/commands/device/${device.id}`, { method: "POST", headers: authHeaders(), body: JSON.stringify({ command_type: cmd, payload: {} }) });
+      const ok = resp.ok;
+      setCommandLog(prev => [{ id: Date.now(), device: device.name || device.model, cmd: cmdMap[cmd] || cmd, time: new Date().toLocaleTimeString("tr-TR"), status: ok ? "Gönderildi" : "Başarısız", ok }, ...prev.slice(0, 19)]);
+      if (ok) { showToast(`"${cmdMap[cmd]}" komutu gönderildi`); if (cmd === "lock") setDevices(prev => prev.map(d => d.id === device.id ? { ...d, status: "locked" } : d)); if (cmd === "wipe") setDevices(prev => prev.map(d => d.id === device.id ? { ...d, status: "wiped" } : d)); }
+      else showToast("Komut gönderilemedi", "error");
+    } catch { showToast("Bağlantı hatası", "error"); }
+  };
+
+  useEffect(() => { if (token) fetchAll(); }, [token]);
+  useEffect(() => { if (token && tab === "reports") fetchReports(); }, [tab]);
+  useEffect(() => { if (token && tab === "users") fetchUsers(); }, [tab]);
+  useEffect(() => { if (token && tab === "map") fetchMapLocations(); }, [tab]);
+  useEffect(() => { if (token && tab === "users") fetchUsers(); }, [tab]);
+  useEffect(() => { if (token && tab === "map") fetchMapLocations(); }, [tab]);
 
   const filteredDevices = devices.filter(d => {
-    const matchSearch = d.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      d.user.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      d.location.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchStatus = filterStatus === "all" || d.status === filterStatus;
-    return matchSearch && matchStatus;
+    const name = (d.name || `${d.manufacturer} ${d.model}`).toLowerCase();
+    const owner = (d.owner_name || "").toLowerCase();
+    return (name.includes(searchQuery.toLowerCase()) || owner.includes(searchQuery.toLowerCase())) && (filterStatus === "all" || d.status === filterStatus);
   });
 
-  const stats = {
-    total: devices.length,
-    online: devices.filter(d => d.status === "online").length,
-    offline: devices.filter(d => d.status === "offline").length,
-    noncompliant: devices.filter(d => !d.compliance).length,
-    locked: devices.filter(d => d.status === "locked").length,
-  };
+  if (!token) return (
+    <div style={{ fontFamily: "'DM Sans', system-ui", background: "#0f1117", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&display=swap'); * { box-sizing: border-box; margin: 0; padding: 0; }`}</style>
+      <div style={{ background: "#161925", border: "1px solid #1e2130", borderRadius: 16, padding: "44px 48px", width: 400, maxWidth: "95vw" }}>
+        <div style={{ textAlign: "center", marginBottom: 36 }}>
+          <div style={{ width: 56, height: 56, borderRadius: 14, background: "linear-gradient(135deg,#3b5bdb,#228be6)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, fontWeight: 700, color: "#fff", margin: "0 auto 16px" }}>M</div>
+          <div style={{ fontSize: 22, fontWeight: 700, color: "#f1f5f9" }}>MDM Konsol</div>
+          <div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>Yönetim paneline giriş yapın</div>
+        </div>
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, color: "#64748b", marginBottom: 6 }}>E-posta</div>
+          <input type="email" value={loginEmail} onChange={e => setLoginEmail(e.target.value)} onKeyDown={e => e.key === "Enter" && login()} placeholder="admin@sirket.com" style={{ width: "100%", background: "#0f1117", border: "1px solid #2a3048", borderRadius: 8, padding: "10px 14px", color: "#e2e8f0", fontSize: 14, fontFamily: "inherit", outline: "none" }} />
+        </div>
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ fontSize: 12, color: "#64748b", marginBottom: 6 }}>Şifre</div>
+          <input type="password" value={loginPassword} onChange={e => setLoginPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && login()} placeholder="••••••••" style={{ width: "100%", background: "#0f1117", border: "1px solid #2a3048", borderRadius: 8, padding: "10px 14px", color: "#e2e8f0", fontSize: 14, fontFamily: "inherit", outline: "none" }} />
+        </div>
+        {loginError && <div style={{ color: "#f87171", fontSize: 12, marginBottom: 16, textAlign: "center", background: "#2d1a1a", padding: "8px 12px", borderRadius: 8 }}>{loginError}</div>}
+        <button onClick={login} disabled={loginLoading} style={{ width: "100%", background: loginLoading ? "#2a3048" : "#3b5499", border: "none", borderRadius: 8, padding: "12px", color: "#fff", fontSize: 14, fontWeight: 600, cursor: loginLoading ? "not-allowed" : "pointer", fontFamily: "inherit" }}>
+          {loginLoading ? "⏳ Bağlanıyor..." : "Giriş Yap"}
+        </button>
+        <div style={{ textAlign: "center", marginTop: 16, fontSize: 11, color: "#475569" }}>İlk açılışta ~60 sn uyandırma süresi olabilir</div>
+      </div>
+    </div>
+  );
+
+  const navItems = [
+    { id: "overview", icon: "⬡", label: "Genel Bakış" },
+    { id: "devices", icon: "📱", label: "Cihazlar", badge: stats.total_devices || null },
+    { id: "policies", icon: "🛡️", label: "Politikalar" },
+    { id: "apps", icon: "📦", label: "Uygulamalar" },
+    { id: "qr", icon: "📷", label: "QR Kayıt" },
+    { id: "reports", icon: "📊", label: "Raporlar" },
+              { id: "users", icon: "👥", label: "Kullanıcılar" },
+              { id: "map", icon: "🗺️", label: "Harita" },
+    ...(currentUser?.role === "admin" ? [{ id: "users", icon: "👥", label: "Kullanıcılar", badge: users.length || null }] : []),
+    { id: "logs", icon: "📋", label: "Komut Geçmişi", badge: commandLog.length || null },
+  ];
 
   return (
     <div style={{ fontFamily: "'DM Sans', system-ui, sans-serif", background: "#0f1117", minHeight: "100vh", color: "#e2e8f0" }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: #1e2130; }
-        ::-webkit-scrollbar-thumb { background: #3a3f52; border-radius: 3px; }
-        .tab-btn { padding: 8px 18px; border-radius: 8px; border: none; background: transparent; color: #8892a4; font-size: 13px; font-family: inherit; cursor: pointer; transition: all .2s; font-weight: 500; }
-        .tab-btn:hover { color: #e2e8f0; background: #1e2130; }
-        .tab-btn.active { background: #1e2130; color: #60a5fa; border-bottom: 2px solid #60a5fa; }
+        ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-track { background: #1e2130; } ::-webkit-scrollbar-thumb { background: #3a3f52; border-radius: 3px; }
         .device-row { display: grid; grid-template-columns: 2fr 1.4fr 1fr 1fr 1fr 1fr 100px; gap: 12px; align-items: center; padding: 14px 18px; border-bottom: 1px solid #1e2130; cursor: pointer; transition: background .15s; font-size: 13px; }
-        .device-row:hover { background: #161925; }
-        .device-row.selected { background: #1a2236; }
+        .device-row:hover { background: #161925; } .device-row.selected { background: #1a2236; }
         .cmd-btn { padding: 6px 14px; border-radius: 7px; border: 1px solid #2a3048; background: #161925; color: #94a3b8; font-size: 12px; cursor: pointer; transition: all .15s; font-family: inherit; font-weight: 500; }
-        .cmd-btn:hover { background: #1e2a40; color: #60a5fa; border-color: #3b5499; }
-        .cmd-btn.danger:hover { background: #2d1a1a; color: #f87171; border-color: #5c2525; }
+        .cmd-btn:hover { background: #1e2a40; color: #60a5fa; border-color: #3b5499; } .cmd-btn.danger:hover { background: #2d1a1a; color: #f87171; border-color: #5c2525; }
         .stat-card { background: #161925; border-radius: 12px; padding: 20px 22px; border: 1px solid #1e2130; flex: 1; }
         .policy-card { background: #161925; border-radius: 12px; padding: 18px 20px; border: 1px solid #1e2130; margin-bottom: 14px; }
-        input[type=text], select { background: #161925; border: 1px solid #2a3048; color: #e2e8f0; padding: 8px 14px; border-radius: 8px; font-size: 13px; font-family: inherit; outline: none; }
-        input[type=text]:focus, select:focus { border-color: #3b5499; }
+        input[type=text], input[type=email], input[type=password], select { background: #161925; border: 1px solid #2a3048; color: #e2e8f0; padding: 8px 14px; border-radius: 8px; font-size: 13px; font-family: inherit; outline: none; }
+        input[type=text]:focus, input[type=email]:focus, input[type=password]:focus, select:focus { border-color: #3b5499; }
         select option { background: #161925; }
         .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,.7); display: flex; align-items: center; justify-content: center; z-index: 100; }
-        .modal { background: #161925; border: 1px solid #2a3048; border-radius: 16px; padding: 28px 32px; width: 400px; max-width: 95vw; }
+        .modal { background: #161925; border: 1px solid #2a3048; border-radius: 16px; padding: 28px 32px; width: 440px; max-width: 95vw; }
         .tag { display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: 11px; font-weight: 500; }
         .progress-bar { height: 5px; border-radius: 3px; background: #2a3048; overflow: hidden; }
         .progress-fill { height: 100%; border-radius: 3px; transition: width .4s; }
+        .report-card { background: #161925; border-radius: 14px; border: 1px solid #1e2130; padding: 20px; margin-bottom: 16px; }
+        .report-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .report-table th { text-align: left; padding: 8px 12px; color: #64748b; font-weight: 600; border-bottom: 1px solid #1e2130; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
+        .report-table td { padding: 10px 12px; border-bottom: 1px solid #1e2130; color: #94a3b8; }
+        .report-table tr:last-child td { border-bottom: none; }
+        .report-table tr:hover td { background: #1e2130; }
+        .qr-btn-primary { background: #1e2340; border: 1px solid #3b5499; border-radius: 8px; padding: 8px 16px; color: #60a5fa; font-size: 13px; cursor: pointer; font-family: inherit; width: 100%; margin-bottom: 8px; }
+        .qr-btn-secondary { background: #161925; border: 1px solid #2a3048; border-radius: 8px; padding: 8px 16px; color: #94a3b8; font-size: 13px; cursor: pointer; font-family: inherit; width: 100%; }
+        .qr-btn-primary:hover { background: #1e2a50; } .qr-btn-secondary:hover { background: #1e2130; color: #e2e8f0; }
+        .user-card { background: #161925; border-radius: 12px; border: 1px solid #1e2130; padding: 18px 20px; margin-bottom: 12px; display: flex; align-items: center; gap: 16px; }
+        .form-group { margin-bottom: 16px; }
+        .form-label { font-size: 12px; color: #64748b; margin-bottom: 6px; display: block; }
+        .form-input { width: 100%; background: #0f1117; border: 1px solid #2a3048; color: #e2e8f0; padding: 10px 14px; border-radius: 8px; font-size: 13px; font-family: inherit; outline: none; }
+        .form-input:focus { border-color: #3b5499; }
       `}</style>
 
-      {/* Sidebar + Header Layout */}
       <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
-
         {/* Sidebar */}
         <div style={{ width: 220, background: "#0d0f18", borderRight: "1px solid #1e2130", display: "flex", flexDirection: "column", flexShrink: 0 }}>
           <div style={{ padding: "22px 20px 18px", borderBottom: "1px solid #1e2130" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <div style={{ width: 32, height: 32, borderRadius: 8, background: "linear-gradient(135deg, #3b5bdb, #228be6)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, fontWeight: 700 }}>M</div>
+              <div style={{ width: 32, height: 32, borderRadius: 8, background: "linear-gradient(135deg,#3b5bdb,#228be6)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, fontWeight: 700, color: "#fff" }}>M</div>
               <div>
                 <div style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9" }}>MDM Konsol</div>
                 <div style={{ fontSize: 11, color: "#64748b" }}>v1.0 Enterprise</div>
               </div>
             </div>
           </div>
-
           <nav style={{ padding: "12px 10px", flex: 1 }}>
-            {[
-              { id: "overview", icon: "⬡", label: "Genel Bakış" },
-              { id: "devices", icon: "📱", label: "Cihazlar" },
-              { id: "policies", icon: "🛡️", label: "Politikalar" },
-              { id: "apps", icon: "📦", label: "Uygulamalar" },
-              { id: "logs", icon: "📋", label: "Komut Geçmişi" },
-            ].map(item => (
+            {navItems.map(item => (
               <button key={item.id} onClick={() => setTab(item.id)}
                 style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "9px 12px", borderRadius: 8, border: "none", background: tab === item.id ? "#1e2340" : "transparent", color: tab === item.id ? "#60a5fa" : "#8892a4", fontSize: 13, fontFamily: "inherit", fontWeight: 500, cursor: "pointer", marginBottom: 2, textAlign: "left", transition: "all .15s" }}>
                 <span style={{ fontSize: 16 }}>{item.icon}</span>
                 {item.label}
-                {item.id === "devices" && <span style={{ marginLeft: "auto", background: "#1e2a40", color: "#60a5fa", fontSize: 11, padding: "1px 7px", borderRadius: 10 }}>{stats.total}</span>}
+                {item.badge ? <span style={{ marginLeft: "auto", background: "#1e2a40", color: "#60a5fa", fontSize: 11, padding: "1px 7px", borderRadius: 10 }}>{item.badge}</span> : null}
               </button>
             ))}
           </nav>
-
           <div style={{ padding: "14px 16px", borderTop: "1px solid #1e2130" }}>
-            <div style={{ fontSize: 11, color: "#64748b", marginBottom: 6 }}>Sistem Durumu</div>
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            {currentUser && (
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 12, color: "#e2e8f0", fontWeight: 500 }}>{currentUser.full_name || currentUser.email}</div>
+                <span className="tag" style={{ background: "#1e2340", color: roleColor(currentUser.role), fontSize: 10, marginTop: 3 }}>{roleLabel(currentUser.role)}</span>
+              </div>
+            )}
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
               <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 6px #22c55e" }}></div>
               <span style={{ fontSize: 12, color: "#94a3b8" }}>API Çevrimiçi</span>
+              {apiLoading && <span style={{ fontSize: 11, color: "#64748b", marginLeft: "auto" }}>⟳</span>}
             </div>
-            <div style={{ fontSize: 11, color: "#64748b", marginTop: 8 }}>admin@sirket.com.tr</div>
+            <button onClick={fetchAll} style={{ background: "#1e2130", border: "1px solid #2a3048", borderRadius: 6, padding: "5px 10px", color: "#64748b", fontSize: 11, cursor: "pointer", fontFamily: "inherit", width: "100%", marginBottom: 6 }}>🔄 Yenile</button>
+            <button onClick={logout} style={{ background: "none", border: "1px solid #2a3048", borderRadius: 6, padding: "5px 10px", color: "#64748b", fontSize: 11, cursor: "pointer", fontFamily: "inherit", width: "100%" }}>Çıkış Yap</button>
           </div>
         </div>
 
-        {/* Main Content */}
+        {/* Main */}
         <div style={{ flex: 1, overflow: "auto", display: "flex", flexDirection: "column" }}>
-          {/* Header */}
           <div style={{ padding: "16px 28px", borderBottom: "1px solid #1e2130", background: "#0d0f18", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
             <div>
               <div style={{ fontSize: 18, fontWeight: 600, color: "#f1f5f9" }}>
-                {{ overview: "Genel Bakış", devices: "Cihaz Yönetimi", policies: "Politika Yönetimi", apps: "Uygulama Yönetimi", logs: "Komut Geçmişi" }[tab]}
+                {{ overview: "Genel Bakış", devices: "Cihaz Yönetimi", policies: "Politika Yönetimi", apps: "Uygulama Yönetimi", qr: "QR Kayıt", reports: "Raporlar", users: "Kullanıcı Yönetimi", map: "Cihaz Haritası", logs: "Komut Geçmişi" }[tab]}
               </div>
               <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Son güncelleme: {new Date().toLocaleString("tr-TR")}</div>
             </div>
-            <div style={{ display: "flex", gap: 10 }}>
-              {stats.noncompliant > 0 && (
-                <div style={{ background: "#2d1a1a", border: "1px solid #5c2525", borderRadius: 8, padding: "6px 14px", fontSize: 12, color: "#f87171" }}>
-                  ⚠️ {stats.noncompliant} uyumsuz cihaz
-                </div>
-              )}
-              <button onClick={() => showToast("Cihaz listesi yenilendi")} style={{ background: "#1e2130", border: "1px solid #2a3048", borderRadius: 8, padding: "7px 16px", color: "#94a3b8", fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>🔄 Yenile</button>
-            </div>
+            {stats.non_compliant_devices > 0 && <div style={{ background: "#2d1a1a", border: "1px solid #5c2525", borderRadius: 8, padding: "6px 14px", fontSize: 12, color: "#f87171" }}>⚠️ {stats.non_compliant_devices} uyumsuz cihaz</div>}
           </div>
 
           <div style={{ padding: 28, flex: 1 }}>
@@ -184,11 +416,11 @@ export default function MDMDashboard() {
               <div>
                 <div style={{ display: "flex", gap: 16, marginBottom: 28 }}>
                   {[
-                    { label: "Toplam Cihaz", val: stats.total, color: "#60a5fa", icon: "📱" },
-                    { label: "Çevrimiçi", val: stats.online, color: "#22c55e", icon: "🟢" },
-                    { label: "Çevrimdışı", val: stats.offline, color: "#6b7280", icon: "⚫" },
-                    { label: "Uyumsuz", val: stats.noncompliant, color: "#f87171", icon: "⚠️" },
-                    { label: "Kilitli", val: stats.locked, color: "#f59e0b", icon: "🔒" },
+                    { label: "Toplam Cihaz", val: stats.total_devices, color: "#60a5fa", icon: "📱" },
+                    { label: "Çevrimiçi", val: stats.online_devices, color: "#22c55e", icon: "🟢" },
+                    { label: "Çevrimdışı", val: stats.offline_devices, color: "#6b7280", icon: "⚫" },
+                    { label: "Uyumsuz", val: stats.non_compliant_devices, color: "#f87171", icon: "⚠️" },
+                    { label: "Kilitli", val: stats.locked_devices, color: "#f59e0b", icon: "🔒" },
                   ].map(s => (
                     <div key={s.label} className="stat-card" style={{ textAlign: "center" }}>
                       <div style={{ fontSize: 24, marginBottom: 8 }}>{s.icon}</div>
@@ -197,57 +429,35 @@ export default function MDMDashboard() {
                     </div>
                   ))}
                 </div>
-
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-                  {/* Recent Devices */}
                   <div style={{ background: "#161925", borderRadius: 14, border: "1px solid #1e2130", padding: 20 }}>
                     <div style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9", marginBottom: 16 }}>Son Aktif Cihazlar</div>
-                    {devices.filter(d => d.status === "online").slice(0, 4).map(d => (
-                      <div key={d.id} onClick={() => { setTab("devices"); setSelectedDevice(d); }}
-                        style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: "1px solid #1e2130", cursor: "pointer" }}>
+                    {devices.filter(d => d.status === "online").slice(0, 5).map(d => (
+                      <div key={d.id} onClick={() => { setTab("devices"); setSelectedDevice(d); }} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: "1px solid #1e2130", cursor: "pointer" }}>
                         <div style={{ width: 36, height: 36, borderRadius: 10, background: "#1e2340", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>📱</div>
                         <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 13, fontWeight: 500, color: "#e2e8f0" }}>{d.name}</div>
-                          <div style={{ fontSize: 11, color: "#64748b" }}>{d.user} · {d.location}</div>
+                          <div style={{ fontSize: 13, fontWeight: 500, color: "#e2e8f0" }}>{d.name || `${d.manufacturer} ${d.model}`}</div>
+                          <div style={{ fontSize: 11, color: "#64748b" }}>{d.owner_name || "—"}</div>
                         </div>
-                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          <div style={{ width: 7, height: 7, borderRadius: "50%", background: statusColor(d.status) }}></div>
-                          <span style={{ fontSize: 11, color: "#64748b" }}>{d.lastSeen}</span>
-                        </div>
+                        <div style={{ width: 7, height: 7, borderRadius: "50%", background: statusColor(d.status) }}></div>
                       </div>
                     ))}
+                    {devices.filter(d => d.status === "online").length === 0 && <div style={{ color: "#64748b", fontSize: 13, padding: "20px 0", textAlign: "center" }}>Çevrimiçi cihaz yok</div>}
                   </div>
-
-                  {/* Compliance */}
                   <div style={{ background: "#161925", borderRadius: 14, border: "1px solid #1e2130", padding: 20 }}>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9", marginBottom: 16 }}>Uyumluluk Özeti</div>
-                    {[
-                      { label: "Uyumlu", val: devices.filter(d => d.compliance).length, color: "#22c55e" },
-                      { label: "Uyumsuz", val: devices.filter(d => !d.compliance).length, color: "#f87171" },
-                    ].map(item => (
+                    <div style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9", marginBottom: 16 }}>Uyumluluk</div>
+                    {[{ label: "Uyumlu", val: devices.filter(d => d.is_compliant !== false).length, color: "#22c55e" }, { label: "Uyumsuz", val: devices.filter(d => d.is_compliant === false).length, color: "#f87171" }].map(item => (
                       <div key={item.label} style={{ marginBottom: 16 }}>
                         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
                           <span style={{ fontSize: 13, color: "#94a3b8" }}>{item.label}</span>
-                          <span style={{ fontSize: 13, fontWeight: 600, color: item.color, fontFamily: "monospace" }}>{item.val} / {devices.length}</span>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: item.color }}>{item.val} / {devices.length || 0}</span>
                         </div>
-                        <div className="progress-bar">
-                          <div className="progress-fill" style={{ width: `${(item.val / devices.length) * 100}%`, background: item.color }} />
-                        </div>
+                        <div className="progress-bar"><div className="progress-fill" style={{ width: devices.length ? `${(item.val / devices.length) * 100}%` : "0%", background: item.color }} /></div>
                       </div>
                     ))}
-                    <div style={{ marginTop: 20 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: "#f1f5f9", marginBottom: 12 }}>Platform Dağılımı</div>
-                      {[
-                        { label: "Android 14", val: 3, color: "#60a5fa" },
-                        { label: "Android 13", val: 2, color: "#818cf8" },
-                        { label: "Android 12", val: 1, color: "#a78bfa" },
-                      ].map(item => (
-                        <div key={item.label} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-                          <div style={{ width: 10, height: 10, borderRadius: 2, background: item.color, flexShrink: 0 }}></div>
-                          <span style={{ fontSize: 12, color: "#94a3b8", flex: 1 }}>{item.label}</span>
-                          <span style={{ fontSize: 12, fontFamily: "monospace", color: item.color }}>{item.val}</span>
-                        </div>
-                      ))}
+                    <div style={{ marginTop: 16, padding: 14, background: "#0f1117", borderRadius: 10 }}>
+                      <div style={{ fontSize: 12, color: "#64748b", marginBottom: 6 }}>Bekleyen Komutlar</div>
+                      <div style={{ fontSize: 28, fontWeight: 700, color: "#f59e0b", fontFamily: "monospace" }}>{stats.pending_commands}</div>
                     </div>
                   </div>
                 </div>
@@ -257,12 +467,9 @@ export default function MDMDashboard() {
             {/* DEVICES */}
             {tab === "devices" && (
               <div style={{ display: "flex", gap: 20 }}>
-                {/* Device List */}
                 <div style={{ flex: 1 }}>
-                  {/* Filters */}
                   <div style={{ display: "flex", gap: 12, marginBottom: 18 }}>
-                    <input type="text" placeholder="🔍 Cihaz, kullanıcı veya konum ara..." value={searchQuery}
-                      onChange={e => setSearchQuery(e.target.value)} style={{ flex: 1 }} />
+                    <input type="text" placeholder="🔍 Cihaz veya kullanıcı ara..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} style={{ flex: 1 }} />
                     <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
                       <option value="all">Tüm Durumlar</option>
                       <option value="online">Çevrimiçi</option>
@@ -270,110 +477,56 @@ export default function MDMDashboard() {
                       <option value="locked">Kilitli</option>
                     </select>
                   </div>
-
-                  {/* Table Header */}
                   <div className="device-row" style={{ background: "#0d0f18", color: "#64748b", fontWeight: 600, fontSize: 11, letterSpacing: "0.05em", textTransform: "uppercase", cursor: "default", borderRadius: "10px 10px 0 0", border: "1px solid #1e2130", borderBottom: "none" }}>
-                    <span>Cihaz / Kullanıcı</span>
-                    <span>Model / OS</span>
-                    <span>Durum</span>
-                    <span>Batarya</span>
-                    <span>Depolama</span>
-                    <span>Politika</span>
-                    <span>İşlem</span>
+                    <span>Cihaz / Kullanıcı</span><span>Model / OS</span><span>Durum</span><span>Batarya</span><span>Depolama</span><span>Kayıt</span><span>İşlem</span>
                   </div>
-
                   <div style={{ border: "1px solid #1e2130", borderRadius: "0 0 10px 10px", overflow: "hidden" }}>
-                    {filteredDevices.map(device => (
-                      <div key={device.id} className={`device-row ${selectedDevice?.id === device.id ? "selected" : ""}`}
-                        onClick={() => setSelectedDevice(device)}>
-                        <div>
-                          <div style={{ fontWeight: 500, color: "#e2e8f0", fontSize: 13 }}>{device.name}</div>
-                          <div style={{ color: "#64748b", fontSize: 11 }}>{device.user}</div>
-                        </div>
-                        <div>
-                          <div style={{ fontSize: 12, color: "#94a3b8" }}>{device.model}</div>
-                          <div style={{ fontSize: 11, color: "#64748b" }}>{device.os}</div>
-                        </div>
+                    {filteredDevices.length === 0 ? (
+                      <div style={{ padding: "50px", textAlign: "center", color: "#64748b", background: "#0d0f18", fontSize: 13 }}>{devices.length === 0 ? "Kayıtlı cihaz yok. QR Kayıt sekmesinden cihaz ekleyin." : "Sonuç bulunamadı"}</div>
+                    ) : filteredDevices.map(device => (
+                      <div key={device.id} className={`device-row ${selectedDevice?.id === device.id ? "selected" : ""}`} onClick={() => setSelectedDevice(device)}>
+                        <div><div style={{ fontWeight: 500, color: "#e2e8f0", fontSize: 13 }}>{device.name || `${device.manufacturer} ${device.model}`}</div><div style={{ color: "#64748b", fontSize: 11 }}>{device.owner_name || "—"}</div></div>
+                        <div><div style={{ fontSize: 12, color: "#94a3b8" }}>{device.model}</div><div style={{ fontSize: 11, color: "#64748b" }}>Android {device.android_version}</div></div>
                         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                           <div style={{ width: 7, height: 7, borderRadius: "50%", background: statusColor(device.status), boxShadow: device.status === "online" ? `0 0 5px ${statusColor(device.status)}` : "none", flexShrink: 0 }}></div>
                           <span style={{ fontSize: 12, color: statusColor(device.status) }}>{statusLabel(device.status)}</span>
                         </div>
-                        <div>
-                          <div style={{ fontSize: 12, color: device.battery < 20 ? "#f87171" : "#94a3b8", fontFamily: "monospace" }}>%{device.battery}</div>
-                          <div className="progress-bar" style={{ width: 60, marginTop: 4 }}>
-                            <div className="progress-fill" style={{ width: `${device.battery}%`, background: device.battery < 20 ? "#ef4444" : device.battery < 50 ? "#f59e0b" : "#22c55e" }} />
-                          </div>
-                        </div>
-                        <div>
-                          <div style={{ fontSize: 12, color: device.storage > 75 ? "#f87171" : "#94a3b8", fontFamily: "monospace" }}>%{device.storage}</div>
-                          <div className="progress-bar" style={{ width: 60, marginTop: 4 }}>
-                            <div className="progress-fill" style={{ width: `${device.storage}%`, background: device.storage > 75 ? "#ef4444" : "#60a5fa" }} />
-                          </div>
-                        </div>
-                        <div>
-                          <span className="tag" style={{ background: "#1e2340", color: "#60a5fa", fontSize: 11 }}>{device.policy}</span>
-                        </div>
+                        <div><div style={{ fontSize: 12, color: device.battery_level < 20 ? "#f87171" : "#94a3b8", fontFamily: "monospace" }}>%{device.battery_level}</div><div className="progress-bar" style={{ width: 60, marginTop: 4 }}><div className="progress-fill" style={{ width: `${device.battery_level}%`, background: device.battery_level < 20 ? "#ef4444" : device.battery_level < 50 ? "#f59e0b" : "#22c55e" }} /></div></div>
+                        <div style={{ fontSize: 12, color: "#94a3b8", fontFamily: "monospace" }}>{device.storage_used_gb}/{device.storage_total_gb} GB</div>
+                        <div style={{ fontSize: 11, color: "#64748b" }}>{device.enrolled_at ? new Date(device.enrolled_at).toLocaleDateString("tr-TR") : "—"}</div>
                         <div style={{ display: "flex", gap: 6 }}>
                           <button className="cmd-btn" onClick={e => { e.stopPropagation(); setPendingCommand({ device, cmd: "lock" }); setShowCommandModal(true); }} title="Kilitle">🔒</button>
                           <button className="cmd-btn danger" onClick={e => { e.stopPropagation(); setPendingCommand({ device, cmd: "wipe" }); setShowCommandModal(true); }} title="Sil">🗑️</button>
                         </div>
                       </div>
                     ))}
-                    {filteredDevices.length === 0 && (
-                      <div style={{ padding: "40px", textAlign: "center", color: "#64748b", background: "#0d0f18" }}>Sonuç bulunamadı</div>
-                    )}
                   </div>
                 </div>
-
-                {/* Device Detail Panel */}
                 {selectedDevice && (
                   <div style={{ width: 300, background: "#161925", borderRadius: 14, border: "1px solid #1e2130", padding: 22, flexShrink: 0, alignSelf: "flex-start" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 18 }}>
                       <div style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9" }}>Cihaz Detayı</div>
                       <button onClick={() => setSelectedDevice(null)} style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", fontSize: 16 }}>✕</button>
                     </div>
-
                     <div style={{ textAlign: "center", marginBottom: 20 }}>
                       <div style={{ fontSize: 48, marginBottom: 8 }}>📱</div>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9" }}>{selectedDevice.name}</div>
-                      <div style={{ fontSize: 12, color: "#64748b" }}>{selectedDevice.user}</div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9" }}>{selectedDevice.name || `${selectedDevice.manufacturer} ${selectedDevice.model}`}</div>
+                      <div style={{ fontSize: 12, color: "#64748b" }}>{selectedDevice.owner_name || "—"}</div>
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 8 }}>
-                        <div style={{ width: 8, height: 8, borderRadius: "50%", background: statusColor(selectedDevice.status), boxShadow: selectedDevice.status === "online" ? `0 0 6px ${statusColor(selectedDevice.status)}` : "none" }}></div>
+                        <div style={{ width: 8, height: 8, borderRadius: "50%", background: statusColor(selectedDevice.status) }}></div>
                         <span style={{ fontSize: 12, color: statusColor(selectedDevice.status) }}>{statusLabel(selectedDevice.status)}</span>
                       </div>
                     </div>
-
-                    {[
-                      ["Model", selectedDevice.model],
-                      ["OS", selectedDevice.os],
-                      ["Politika", selectedDevice.policy],
-                      ["Konum", selectedDevice.location],
-                      ["Kayıt Tarihi", selectedDevice.enrolled],
-                      ["Uygulamalar", `${selectedDevice.apps} adet`],
-                      ["Son Görülme", selectedDevice.lastSeen],
-                    ].map(([k, v]) => (
+                    {[["Model", selectedDevice.model], ["Üretici", selectedDevice.manufacturer], ["Android", selectedDevice.android_version], ["Batarya", `%${selectedDevice.battery_level}`], ["Depolama", `${selectedDevice.storage_used_gb}/${selectedDevice.storage_total_gb} GB`], ["Politika", selectedDevice.policy_name || "—"], ["Uyumluluk", selectedDevice.is_compliant ? "✓ Uyumlu" : "✗ Uyumsuz"]].map(([k, v]) => (
                       <div key={k} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: "1px solid #1e2130", fontSize: 12 }}>
-                        <span style={{ color: "#64748b" }}>{k}</span>
-                        <span style={{ color: "#94a3b8", fontFamily: "monospace" }}>{v}</span>
+                        <span style={{ color: "#64748b" }}>{k}</span><span style={{ color: "#94a3b8", fontFamily: "monospace" }}>{v}</span>
                       </div>
                     ))}
-
                     <div style={{ marginTop: 18 }}>
                       <div style={{ fontSize: 11, color: "#64748b", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.05em" }}>Uzak Komutlar</div>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                        {[
-                          { cmd: "lock", label: "🔒 Kilitle", danger: false },
-                          { cmd: "unlock", label: "🔓 Aç", danger: false },
-                          { cmd: "reboot", label: "🔁 Yeniden Başlat", danger: false },
-                          { cmd: "locate", label: "📍 Konum Al", danger: false },
-                          { cmd: "push_policy", label: "🛡️ Politika Gönder", danger: false },
-                          { cmd: "wipe", label: "🗑️ Fabrika Sıfırla", danger: true },
-                        ].map(({ cmd, label, danger }) => (
-                          <button key={cmd} className={`cmd-btn ${danger ? "danger" : ""}`}
-                            style={{ fontSize: 11, padding: "7px 4px", textAlign: "center" }}
-                            onClick={() => { setPendingCommand({ device: selectedDevice, cmd }); setShowCommandModal(true); }}>
-                            {label}
-                          </button>
+                        {[{ cmd: "lock", label: "🔒 Kilitle", danger: false }, { cmd: "unlock", label: "🔓 Aç", danger: false }, { cmd: "reboot", label: "🔁 Yeniden Başlat", danger: false }, { cmd: "locate", label: "📍 Konum Al", danger: false }, { cmd: "push_policy", label: "🛡️ Politika", danger: false }, { cmd: "wipe", label: "🗑️ Fabrika Sıfırla", danger: true }].map(({ cmd, label, danger }) => (
+                          <button key={cmd} className={`cmd-btn ${danger ? "danger" : ""}`} style={{ fontSize: 11, padding: "7px 4px", textAlign: "center" }} onClick={() => { setPendingCommand({ device: selectedDevice, cmd }); setShowCommandModal(true); }}>{label}</button>
                         ))}
                       </div>
                     </div>
@@ -385,114 +538,461 @@ export default function MDMDashboard() {
             {/* POLICIES */}
             {tab === "policies" && (
               <div>
-                {MOCK_POLICIES.map(policy => (
+                {policies.map(policy => (
                   <div key={policy.id} className="policy-card">
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
-                      <div>
-                        <div style={{ fontSize: 15, fontWeight: 600, color: "#f1f5f9" }}>{policy.name}</div>
-                        <div style={{ fontSize: 12, color: "#64748b", marginTop: 3 }}>Oluşturulma: {policy.created} · {policy.devices} cihaz</div>
-                      </div>
+                      <div><div style={{ fontSize: 15, fontWeight: 600, color: "#f1f5f9" }}>{policy.name}</div><div style={{ fontSize: 12, color: "#64748b", marginTop: 3 }}>{policy.device_count || 0} cihaz</div></div>
                       <div style={{ display: "flex", gap: 8 }}>
-                        <button className="cmd-btn" style={{ fontSize: 12 }}>✏️ Düzenle</button>
-                        <button className="cmd-btn" style={{ fontSize: 12 }} onClick={() => showToast(`"${policy.name}" politikası ${policy.devices} cihaza gönderildi`)}>📤 Gönder</button>
+                        <button className="cmd-btn" style={{ fontSize: 12 }} onClick={() => { setTab("qr"); generateQr(policy.id, "provisioning"); }}>📱 Sıfır QR</button>
+                        <button className="cmd-btn" style={{ fontSize: 12 }} onClick={() => { setTab("qr"); generateQr(policy.id, "simple"); }}>📷 Hızlı QR</button>
+                        <button className="cmd-btn" style={{ fontSize: 12 }} onClick={() => showToast(`"${policy.name}" politikası gönderildi`)}>📤 Gönder</button>
                       </div>
                     </div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                      {policy.rules.map(rule => (
-                        <span key={rule} className="tag" style={{ background: "#1e2340", color: "#94a3b8", padding: "4px 12px", fontSize: 12 }}>
-                          ✓ {rule}
-                        </span>
+                      {policy.rules && Object.entries(policy.rules).map(([k, v]) => (
+                        <span key={k} className="tag" style={{ background: "#1e2340", color: "#94a3b8", padding: "4px 12px", fontSize: 12 }}>✓ {k}{typeof v !== "boolean" ? `: ${v}` : ""}</span>
                       ))}
                     </div>
                   </div>
                 ))}
-                <button onClick={() => showToast("Yeni politika oluşturma ekranı (yakında)")} style={{ background: "#1e2130", border: "1px dashed #2a3048", borderRadius: 12, padding: "16px 24px", color: "#64748b", fontSize: 13, cursor: "pointer", width: "100%", fontFamily: "inherit" }}>
-                  + Yeni Politika Oluştur
-                </button>
+                {policies.length === 0 && <div style={{ color: "#64748b", fontSize: 13, textAlign: "center", padding: "40px" }}>Politika yok.</div>}
               </div>
             )}
 
             {/* APPS */}
             {tab === "apps" && (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
+                {apps.map(app => (
+                  <div key={app.id} style={{ background: "#161925", borderRadius: 14, border: "1px solid #1e2130", padding: 20 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+                      <div style={{ width: 44, height: 44, borderRadius: 12, background: "#1e2340", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>📦</div>
+                      <div style={{ flex: 1 }}><div style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9" }}>{app.name}</div><div style={{ fontSize: 10, color: "#64748b", fontFamily: "monospace" }}>{app.package_name}</div></div>
+                      {app.is_required && <span className="tag" style={{ background: "#1a2d1a", color: "#4ade80", fontSize: 10 }}>Zorunlu</span>}
+                    </div>
+                    <div style={{ fontSize: 12, color: "#64748b", marginBottom: 8 }}>Sürüm: <span style={{ color: "#94a3b8", fontFamily: "monospace" }}>{app.version}</span></div>
+                    <button className="cmd-btn" style={{ width: "100%", fontSize: 11, marginTop: 8 }} onClick={() => showToast(`"${app.name}" dağıtım isteği gönderildi`)}>📤 Dağıt</button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* QR KAYIT */}
+            {tab === "qr" && (
               <div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
-                  {MOCK_APPS.map(app => (
-                    <div key={app.id} style={{ background: "#161925", borderRadius: 14, border: "1px solid #1e2130", padding: 20 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
-                        <div style={{ width: 44, height: 44, borderRadius: 12, background: "#1e2340", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>📦</div>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9" }}>{app.name}</div>
-                          <div style={{ fontSize: 10, color: "#64748b", fontFamily: "monospace" }}>{app.package}</div>
-                        </div>
-                        {app.required && <span className="tag" style={{ background: "#1a2d1a", color: "#4ade80", fontSize: 10 }}>Zorunlu</span>}
-                      </div>
-                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 8 }}>
-                        <span style={{ color: "#64748b" }}>Sürüm: <span style={{ color: "#94a3b8", fontFamily: "monospace" }}>{app.version}</span></span>
-                        <span style={{ color: "#64748b" }}>{app.installed}/{stats.total} cihaz</span>
-                      </div>
-                      <div className="progress-bar">
-                        <div className="progress-fill" style={{ width: `${(app.installed / stats.total) * 100}%`, background: "#60a5fa" }} />
-                      </div>
-                      <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
-                        <button className="cmd-btn" style={{ flex: 1, fontSize: 11 }} onClick={() => showToast(`"${app.name}" güncelleme gönderildi`)}>📤 Zorla Yükle</button>
-                        <button className="cmd-btn danger" style={{ fontSize: 11 }} onClick={() => showToast(`"${app.name}" kaldırma isteği gönderildi`)}>🗑️</button>
-                      </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 24 }}>
+                  <div style={{ background: "#161925", borderRadius: 12, border: "1px solid #1e2130", padding: 16 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "#60a5fa", marginBottom: 6 }}>📱 Sıfır Kurulum QR</div>
+                    <div style={{ fontSize: 12, color: "#64748b", lineHeight: 1.6 }}>Fabrika sıfırlı telefon için. Kurulum sihirbazında QR taranır, uygulama otomatik yüklenir.</div>
+                  </div>
+                  <div style={{ background: "#161925", borderRadius: 12, border: "1px solid #1e2130", padding: 16 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "#94a3b8", marginBottom: 6 }}>📷 Hızlı Kayıt QR</div>
+                    <div style={{ fontSize: 12, color: "#64748b", lineHeight: 1.6 }}>MDM Agent zaten yüklü cihazlar için. Uygulama içinden QR taranır.</div>
+                  </div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 16, marginBottom: 28 }}>
+                  <div style={{ background: "#161925", borderRadius: 14, border: "1px solid #1e2130", padding: 20 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9", marginBottom: 4 }}>Varsayılan Politika</div>
+                    <div style={{ fontSize: 12, color: "#64748b", marginBottom: 16 }}>Temel kısıtlamalarla kayıt</div>
+                    <button className="qr-btn-primary" onClick={() => generateQr(null, "provisioning")} disabled={qrLoading}>📱 Sıfır Kurulum QR</button>
+                    <button className="qr-btn-secondary" onClick={() => generateQr(null, "simple")} disabled={qrLoading}>📷 Hızlı Kayıt QR</button>
+                  </div>
+                  {policies.map(policy => (
+                    <div key={policy.id} style={{ background: "#161925", borderRadius: 14, border: "1px solid #1e2130", padding: 20 }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9", marginBottom: 4 }}>{policy.name}</div>
+                      <div style={{ fontSize: 12, color: "#64748b", marginBottom: 16 }}>{policy.device_count || 0} cihaz</div>
+                      <button className="qr-btn-primary" onClick={() => generateQr(policy.id, "provisioning")} disabled={qrLoading}>📱 Sıfır Kurulum QR</button>
+                      <button className="qr-btn-secondary" onClick={() => generateQr(policy.id, "simple")} disabled={qrLoading}>📷 Hızlı Kayıt QR</button>
                     </div>
                   ))}
                 </div>
+                {qrLoading && <div style={{ background: "#161925", borderRadius: 14, border: "1px solid #1e2130", padding: 40, textAlign: "center" }}><div style={{ fontSize: 32, marginBottom: 12 }}>⏳</div><div style={{ fontSize: 14, color: "#64748b" }}>QR kod oluşturuluyor...</div></div>}
+                {qrData && !qrLoading && (
+                  <div style={{ background: "#161925", borderRadius: 14, border: "1px solid #1e2130", padding: 40, textAlign: "center" }}>
+                    <div style={{ fontSize: 16, fontWeight: 600, color: "#f1f5f9", marginBottom: 6 }}>{qrData.type === "simple" ? "📷 Hızlı Kayıt QR" : "📱 Sıfır Kurulum QR"}</div>
+                    <div style={{ fontSize: 12, color: "#64748b", marginBottom: 28 }}>Geçerlilik: {new Date(qrData.expires_at).toLocaleString("tr-TR")}</div>
+                    <div style={{ display: "inline-block", background: "white", padding: 16, borderRadius: 12 }}>
+                      <img src={qrData.qr_image} alt="QR Kod" style={{ width: 240, height: 240, display: "block" }} />
+                    </div>
+                    <div style={{ marginTop: 24, fontSize: 13, color: "#64748b", lineHeight: 2, background: "#0f1117", padding: 16, borderRadius: 10, textAlign: "left", maxWidth: 400, margin: "24px auto 0" }}>
+                      {qrData.type === "simple" ? (<><div>1. MDM Agent uygulamasını aç</div><div>2. "QR ile Kayıt" butonuna bas</div><div>3. QR'ı tara → Otomatik kayıt</div></>) : (<><div>1. Telefonu fabrika ayarlarına sıfırla</div><div>2. Wi-Fi ekranında ekrana 6 kez dokun</div><div>3. QR okuyucu açılır → Tara → Otomatik kurulum ✅</div></>)}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* RAPORLAR */}
+            {tab === "reports" && (
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+                  <div style={{ fontSize: 15, fontWeight: 600, color: "#f1f5f9" }}>Sistem Raporları</div>
+                  <button onClick={fetchReports} disabled={reportsLoading} style={{ background: "#1e2130", border: "1px solid #2a3048", borderRadius: 8, padding: "8px 16px", color: "#94a3b8", fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>
+                    {reportsLoading ? "⟳ Yükleniyor..." : "🔄 Yenile"}
+                  </button>
+                </div>
+                {reportsLoading && <div style={{ textAlign: "center", padding: "60px", color: "#64748b" }}>⏳ Raporlar yükleniyor...</div>}
+                {!reportsLoading && reports.summary && (
+                  <div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 20 }}>
+                      {[{ label: "Toplam Cihaz", val: reports.summary.total_devices, color: "#60a5fa", icon: "📱" }, { label: "Uyumluluk Oranı", val: `%${reports.summary.compliance?.rate || 0}`, color: "#22c55e", icon: "✅" }, { label: "Çevrimiçi", val: reports.summary.by_status?.online || 0, color: "#22c55e", icon: "🟢" }, { label: "Uyumsuz", val: reports.summary.compliance?.non_compliant || 0, color: "#f87171", icon: "⚠️" }].map(s => (
+                        <div key={s.label} className="stat-card" style={{ textAlign: "center" }}>
+                          <div style={{ fontSize: 22, marginBottom: 6 }}>{s.icon}</div>
+                          <div style={{ fontSize: 26, fontWeight: 700, color: s.color, fontFamily: "'DM Mono', monospace" }}>{s.val}</div>
+                          <div style={{ fontSize: 11, color: "#64748b", marginTop: 4 }}>{s.label}</div>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+                      {reports.battery && (
+                        <div className="report-card">
+                          <div style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9", marginBottom: 16 }}>🔋 Batarya Durumu</div>
+                          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}><span style={{ fontSize: 12, color: "#64748b" }}>Ortalama</span><span style={{ fontSize: 12, fontWeight: 600, color: "#60a5fa" }}>%{reports.battery.average}</span></div>
+                          {reports.battery.critical?.length > 0 && <><div style={{ fontSize: 11, color: "#f87171", marginBottom: 6, fontWeight: 600 }}>⚠️ KRİTİK (%0-20)</div>{reports.battery.critical.map((d, i) => (<div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 12 }}><span style={{ color: "#94a3b8" }}>{d.name}</span><span style={{ color: "#f87171", fontFamily: "monospace" }}>%{d.battery}</span></div>))}</>}
+                          {reports.battery.low?.length > 0 && <><div style={{ fontSize: 11, color: "#f59e0b", marginBottom: 6, fontWeight: 600, marginTop: 10 }}>⚡ DÜŞÜK (%20-50)</div>{reports.battery.low.map((d, i) => (<div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 12 }}><span style={{ color: "#94a3b8" }}>{d.name}</span><span style={{ color: "#f59e0b", fontFamily: "monospace" }}>%{d.battery}</span></div>))}</>}
+                          {(!reports.battery.critical?.length && !reports.battery.low?.length) && <div style={{ color: "#22c55e", fontSize: 13, textAlign: "center", padding: "10px 0" }}>✅ Tüm cihazlar iyi</div>}
+                        </div>
+                      )}
+                      {reports.storage && (
+                        <div className="report-card">
+                          <div style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9", marginBottom: 16 }}>💾 Depolama</div>
+                          {reports.storage.critical?.length > 0 && <><div style={{ fontSize: 11, color: "#f87171", marginBottom: 6, fontWeight: 600 }}>⚠️ KRİTİK (%90+)</div>{reports.storage.critical.map((d, i) => (<div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 12 }}><span style={{ color: "#94a3b8" }}>{d.name}</span><span style={{ color: "#f87171", fontFamily: "monospace" }}>%{d.percent}</span></div>))}</>}
+                          {reports.storage.warning?.length > 0 && <><div style={{ fontSize: 11, color: "#f59e0b", marginBottom: 6, fontWeight: 600, marginTop: 10 }}>⚡ UYARI (%75-90)</div>{reports.storage.warning.map((d, i) => (<div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 12 }}><span style={{ color: "#94a3b8" }}>{d.name}</span><span style={{ color: "#f59e0b", fontFamily: "monospace" }}>%{d.percent}</span></div>))}</>}
+                          {(!reports.storage.critical?.length && !reports.storage.warning?.length) && <div style={{ color: "#22c55e", fontSize: 13, textAlign: "center", padding: "10px 0" }}>✅ Tüm cihazlar iyi</div>}
+                        </div>
+                      )}
+                    </div>
+                    {reports.commands && (
+                      <div className="report-card" style={{ marginBottom: 16 }}>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9", marginBottom: 16 }}>📋 Son 7 Günün Komutları</div>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
+                          {[{ label: "Toplam", val: reports.commands.total_commands, color: "#60a5fa" }, { label: "Başarılı", val: reports.commands.by_status?.success || 0, color: "#22c55e" }, { label: "Başarısız", val: reports.commands.by_status?.failed || 0, color: "#f87171" }, { label: "Başarı Oranı", val: `%${reports.commands.success_rate}`, color: "#22c55e" }].map(s => (
+                            <div key={s.label} style={{ background: "#0f1117", borderRadius: 8, padding: 14, textAlign: "center" }}>
+                              <div style={{ fontSize: 22, fontWeight: 700, color: s.color, fontFamily: "monospace" }}>{s.val}</div>
+                              <div style={{ fontSize: 11, color: "#64748b", marginTop: 4 }}>{s.label}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {reports.devices?.length > 0 && (
+                      <div className="report-card">
+                        <div style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9", marginBottom: 16 }}>📱 Cihaz Detay Raporu</div>
+                        <div style={{ overflowX: "auto" }}>
+                          <table className="report-table">
+                            <thead><tr><th>Cihaz</th><th>Sahip</th><th>Model</th><th>Android</th><th>Durum</th><th>Batarya</th><th>Depolama</th><th>Politika</th><th>Son Görülme</th></tr></thead>
+                            <tbody>
+                              {reports.devices.map(d => (
+                                <tr key={d.id}>
+                                  <td style={{ color: "#e2e8f0", fontWeight: 500 }}>{d.name}</td>
+                                  <td>{d.owner || "—"}</td>
+                                  <td>{d.model}</td>
+                                  <td>{d.android}</td>
+                                  <td><span style={{ color: statusColor(d.status), fontSize: 11 }}>{statusLabel(d.status)}</span></td>
+                                  <td><span style={{ color: d.battery < 20 ? "#f87171" : "#94a3b8", fontFamily: "monospace" }}>%{d.battery}</span></td>
+                                  <td><span style={{ color: d.storage_percent > 90 ? "#f87171" : "#94a3b8", fontFamily: "monospace" }}>%{d.storage_percent}</span></td>
+                                  <td>{d.policy}</td>
+                                  <td style={{ fontSize: 11 }}>{d.last_seen}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {!reportsLoading && !reports.summary && (
+                  <div style={{ textAlign: "center", padding: "60px", color: "#64748b" }}>
+                    <div style={{ fontSize: 32, marginBottom: 12 }}>📊</div>
+                    <button onClick={fetchReports} style={{ marginTop: 16, background: "#3b5499", border: "none", borderRadius: 8, padding: "10px 24px", color: "#fff", fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>📊 Raporları Yükle</button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* KULLANICI YÖNETİMİ */}
+            {tab === "users" && (
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+                  <div>
+                    <div style={{ fontSize: 15, fontWeight: 600, color: "#f1f5f9" }}>Kullanıcı Yönetimi</div>
+                    <div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>{users.length} kullanıcı kayıtlı</div>
+                  </div>
+                  <button onClick={() => setShowUserModal(true)}
+                    style={{ background: "#3b5499", border: "none", borderRadius: 8, padding: "10px 20px", color: "#fff", fontSize: 13, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>
+                    + Yeni Kullanıcı
+                  </button>
+                </div>
+
+                {/* Rol Açıklamaları */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 24 }}>
+                  {[
+                    { role: "admin", icon: "👑", label: "Admin", desc: "Tüm yetkiler. Kullanıcı yönetimi, wipe komutu dahil." },
+                    { role: "operator", icon: "🔧", label: "Operatör", desc: "Cihaz yönetimi, komut gönderme. Wipe ve kullanıcı yönetimi hariç." },
+                    { role: "viewer", icon: "👁️", label: "Görüntüleyici", desc: "Sadece okuma. Hiçbir değişiklik yapamaz." },
+                  ].map(r => (
+                    <div key={r.role} style={{ background: "#161925", borderRadius: 12, border: "1px solid #1e2130", padding: 16 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                        <span style={{ fontSize: 18 }}>{r.icon}</span>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: roleColor(r.role) }}>{r.label}</span>
+                      </div>
+                      <div style={{ fontSize: 12, color: "#64748b", lineHeight: 1.6 }}>{r.desc}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Kullanıcı Listesi */}
+                {users.map(user => (
+                  <div key={user.id} className="user-card">
+                    <div style={{ width: 44, height: 44, borderRadius: 12, background: "#1e2340", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>
+                      {user.role === "admin" ? "👑" : user.role === "operator" ? "🔧" : "👁️"}
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9" }}>{user.full_name || "—"}</div>
+                      <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>{user.email}</div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      <span className="tag" style={{ background: "#1e2340", color: roleColor(user.role), padding: "4px 12px" }}>{roleLabel(user.role)}</span>
+                      <span className="tag" style={{ background: user.is_active ? "#1a2d1a" : "#2d1a1a", color: user.is_active ? "#4ade80" : "#f87171", padding: "4px 12px" }}>
+                        {user.is_active ? "Aktif" : "Pasif"}
+                      </span>
+                      <div style={{ fontSize: 11, color: "#64748b" }}>
+                        {user.last_login ? `Son giriş: ${new Date(user.last_login).toLocaleDateString("tr-TR")}` : "Hiç giriş yapmadı"}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                {users.length === 0 && (
+                  <div style={{ textAlign: "center", padding: "60px", color: "#64748b" }}>
+                    <div style={{ fontSize: 32, marginBottom: 12 }}>👥</div>
+                    <div>Kullanıcı yok. Yeni kullanıcı ekleyin.</div>
+                  </div>
+                )}
+              </div>
+            )}
+
+
+            {/* KULLANICI YÖNETİMİ */}
+            {tab === "users" && (
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+                  <div style={{ fontSize: 15, fontWeight: 600, color: "#f1f5f9" }}>Kullanıcı Yönetimi</div>
+                  <button onClick={() => setShowUserModal(true)}
+                    style={{ background: "#3b5499", border: "none", borderRadius: 8, padding: "10px 20px", color: "#fff", fontSize: 13, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>
+                    + Yeni Kullanıcı
+                  </button>
+                </div>
+                {usersLoading ? (
+                  <div style={{ textAlign: "center", padding: "60px", color: "#64748b" }}>⏳ Yükleniyor...</div>
+                ) : (
+                  <div style={{ background: "#161925", borderRadius: 14, border: "1px solid #1e2130", overflow: "hidden" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "2fr 2fr 1fr 1fr 1fr", gap: 12, padding: "12px 18px", background: "#0d0f18", color: "#64748b", fontWeight: 600, fontSize: 11, letterSpacing: "0.05em", textTransform: "uppercase" }}>
+                      <span>Ad Soyad</span><span>E-posta</span><span>Rol</span><span>Son Giriş</span><span>Durum</span>
+                    </div>
+                    {users.map(user => (
+                      <div key={user.id} style={{ display: "grid", gridTemplateColumns: "2fr 2fr 1fr 1fr 1fr", gap: 12, alignItems: "center", padding: "14px 18px", borderBottom: "1px solid #1e2130", fontSize: 13 }}>
+                        <div style={{ fontWeight: 500, color: "#e2e8f0" }}>{user.full_name || "—"}</div>
+                        <div style={{ color: "#94a3b8", fontSize: 12 }}>{user.email}</div>
+                        <div>
+                          <span className="tag" style={{
+                            background: user.role === "admin" ? "#1e2340" : user.role === "operator" ? "#1a2d1a" : "#2a2a1a",
+                            color: user.role === "admin" ? "#60a5fa" : user.role === "operator" ? "#4ade80" : "#fbbf24",
+                            padding: "3px 10px"
+                          }}>
+                            {user.role === "admin" ? "👑 Admin" : user.role === "operator" ? "⚙️ Operatör" : "👁️ Görüntüleyici"}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: 11, color: "#64748b" }}>
+                          {user.last_login ? new Date(user.last_login).toLocaleDateString("tr-TR") : "—"}
+                        </div>
+                        <div>
+                          <span className="tag" style={{ background: user.is_active ? "#1a2d1a" : "#2d1a1a", color: user.is_active ? "#4ade80" : "#f87171", padding: "3px 8px" }}>
+                            {user.is_active ? "Aktif" : "Pasif"}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                    {users.length === 0 && <div style={{ padding: "40px", textAlign: "center", color: "#64748b", fontSize: 13 }}>Kullanıcı bulunamadı</div>}
+                  </div>
+                )}
+              </div>
+            )}
+
+
+            {/* HARİTA */}
+            {tab === "map" && (
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+                  <div>
+                    <div style={{ fontSize: 15, fontWeight: 600, color: "#f1f5f9" }}>Cihaz Konumu Haritası</div>
+                    <div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>Konum bilgisi olan cihazlar gösteriliyor</div>
+                  </div>
+                  <button onClick={fetchMapLocations} disabled={mapLoading}
+                    style={{ background: "#1e2130", border: "1px solid #2a3048", borderRadius: 8, padding: "8px 16px", color: "#94a3b8", fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>
+                    {mapLoading ? "⟳ Yükleniyor..." : "🔄 Yenile"}
+                  </button>
+                </div>
+
+                {mapLoading && <div style={{ textAlign: "center", padding: "60px", color: "#64748b" }}>⏳ Konumlar yükleniyor...</div>}
+
+                {!mapLoading && (
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: 20 }}>
+                    {/* Leaflet Harita */}
+                    <div style={{ background: "#161925", borderRadius: 14, border: "1px solid #1e2130", overflow: "hidden", height: 500 }}>
+                      {mapLocations.length === 0 ? (
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", flexDirection: "column", gap: 12 }}>
+                          <div style={{ fontSize: 48 }}>🗺️</div>
+                          <div style={{ fontSize: 14, color: "#64748b", textAlign: "center" }}>
+                            Konum bilgisi olan cihaz yok<br />
+                            <span style={{ fontSize: 12 }}>Cihazlar konum izni verirse burada görünür</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <MapView locations={mapLocations} onSelect={setSelectedMapDevice} selected={selectedMapDevice} />
+                      )}
+                    </div>
+
+                    {/* Cihaz Listesi */}
+                    <div style={{ background: "#161925", borderRadius: 14, border: "1px solid #1e2130", padding: 16, height: 500, overflowY: "auto" }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "#f1f5f9", marginBottom: 14 }}>
+                        📍 {mapLocations.length} Konum
+                      </div>
+                      {mapLocations.length === 0 ? (
+                        <div style={{ color: "#64748b", fontSize: 12, textAlign: "center", padding: "40px 0" }}>Konum yok</div>
+                      ) : mapLocations.map(loc => (
+                        <div key={loc.device_id}
+                          onClick={() => setSelectedMapDevice(loc)}
+                          style={{ padding: "12px", borderRadius: 10, background: selectedMapDevice?.device_id === loc.device_id ? "#1e2340" : "#0f1117", border: `1px solid ${selectedMapDevice?.device_id === loc.device_id ? "#3b5499" : "#1e2130"}`, marginBottom: 8, cursor: "pointer", transition: "all .15s" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                            <div style={{ width: 8, height: 8, borderRadius: "50%", background: statusColor(loc.status), flexShrink: 0 }}></div>
+                            <div style={{ fontSize: 13, fontWeight: 500, color: "#e2e8f0" }}>{loc.name}</div>
+                          </div>
+                          <div style={{ fontSize: 11, color: "#64748b", marginBottom: 4 }}>{loc.owner || "—"}</div>
+                          <div style={{ fontSize: 10, color: "#475569", fontFamily: "monospace" }}>
+                            {loc.lat.toFixed(4)}, {loc.lng.toFixed(4)}
+                          </div>
+                          <div style={{ fontSize: 10, color: "#475569", marginTop: 4 }}>
+                            🔋 %{loc.battery} · {loc.last_seen ? new Date(loc.last_seen).toLocaleString("tr-TR") : "—"}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
             {/* LOGS */}
             {tab === "logs" && (
               <div style={{ background: "#161925", borderRadius: 14, border: "1px solid #1e2130", overflow: "hidden" }}>
-                <div style={{ padding: "16px 20px", borderBottom: "1px solid #1e2130", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ padding: "16px 20px", borderBottom: "1px solid #1e2130", display: "flex", justifyContent: "space-between" }}>
                   <span style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9" }}>Komut Geçmişi</span>
                   <span style={{ fontSize: 12, color: "#64748b" }}>{commandLog.length} kayıt</span>
                 </div>
                 {commandLog.length === 0 ? (
-                  <div style={{ padding: "60px 20px", textAlign: "center", color: "#64748b", fontSize: 13 }}>
-                    Henüz komut gönderilmedi.<br />
-                    <span style={{ fontSize: 12 }}>Cihazlar sekmesinden uzak komut göndererek başlayın.</span>
-                  </div>
+                  <div style={{ padding: "60px 20px", textAlign: "center", color: "#64748b", fontSize: 13 }}>Henüz komut gönderilmedi.</div>
                 ) : commandLog.map(log => (
                   <div key={log.id} style={{ display: "flex", alignItems: "center", gap: 16, padding: "14px 20px", borderBottom: "1px solid #1e2130", fontSize: 13 }}>
-                    <span style={{ fontSize: 18 }}>✅</span>
-                    <div style={{ flex: 1 }}>
-                      <span style={{ color: "#e2e8f0", fontWeight: 500 }}>{log.cmd}</span>
-                      <span style={{ color: "#64748b" }}> → {log.device}</span>
-                    </div>
+                    <span style={{ fontSize: 18 }}>{log.ok ? "✅" : "❌"}</span>
+                    <div style={{ flex: 1 }}><span style={{ color: "#e2e8f0", fontWeight: 500 }}>{log.cmd}</span><span style={{ color: "#64748b" }}> → {log.device}</span></div>
                     <span style={{ fontSize: 11, color: "#64748b", fontFamily: "monospace" }}>{log.time}</span>
-                    <span className="tag" style={{ background: "#1a2d1a", color: "#4ade80", fontSize: 11 }}>{log.status}</span>
+                    <span className="tag" style={{ background: log.ok ? "#1a2d1a" : "#2d1a1a", color: log.ok ? "#4ade80" : "#f87171", fontSize: 11 }}>{log.status}</span>
                   </div>
                 ))}
               </div>
             )}
-
           </div>
         </div>
       </div>
 
-      {/* Command Confirm Modal */}
+      {/* Yeni Kullanıcı Modal */}
+      {showUserModal && (
+        <div className="modal-overlay" onClick={() => setShowUserModal(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div style={{ fontSize: 16, fontWeight: 600, color: "#f1f5f9", marginBottom: 20 }}>👥 Yeni Kullanıcı Oluştur</div>
+            <div className="form-group">
+              <label className="form-label">Ad Soyad</label>
+              <input className="form-input" type="text" placeholder="Ahmet Yılmaz" value={newUser.full_name} onChange={e => setNewUser({ ...newUser, full_name: e.target.value })} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">E-posta *</label>
+              <input className="form-input" type="email" placeholder="ahmet@sirket.com" value={newUser.email} onChange={e => setNewUser({ ...newUser, email: e.target.value })} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Şifre *</label>
+              <input className="form-input" type="password" placeholder="En az 8 karakter" value={newUser.password} onChange={e => setNewUser({ ...newUser, password: e.target.value })} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Rol</label>
+              <select className="form-input" value={newUser.role} onChange={e => setNewUser({ ...newUser, role: e.target.value })}>
+                <option value="operator">Operatör</option>
+                <option value="viewer">Görüntüleyici</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
+              <button className="cmd-btn" onClick={() => setShowUserModal(false)}>İptal</button>
+              <button onClick={createUser} disabled={userLoading}
+                style={{ background: "#3b5499", border: "none", borderRadius: 8, padding: "8px 20px", color: "#fff", fontSize: 13, cursor: userLoading ? "not-allowed" : "pointer", fontFamily: "inherit", fontWeight: 500 }}>
+                {userLoading ? "⏳ Oluşturuluyor..." : "✅ Oluştur"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Komut Onay Modal */}
+
+      {/* Kullanıcı Oluşturma Modalı */}
+      {showUserModal && (
+        <div className="modal-overlay" onClick={() => { setShowUserModal(false); setUserError(""); }}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ width: 480 }}>
+            <div style={{ fontSize: 16, fontWeight: 600, color: "#f1f5f9", marginBottom: 20 }}>+ Yeni Kullanıcı Oluştur</div>
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 12, color: "#64748b", marginBottom: 6 }}>Ad Soyad</div>
+              <input type="text" value={newUser.full_name} onChange={e => setNewUser(p => ({ ...p, full_name: e.target.value }))} placeholder="Ahmet Yılmaz"
+                style={{ width: "100%", background: "#0f1117", border: "1px solid #2a3048", borderRadius: 8, padding: "10px 14px", color: "#e2e8f0", fontSize: 13, fontFamily: "inherit", outline: "none" }} />
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 12, color: "#64748b", marginBottom: 6 }}>E-posta</div>
+              <input type="email" value={newUser.email} onChange={e => setNewUser(p => ({ ...p, email: e.target.value }))} placeholder="ahmet@sirket.com"
+                style={{ width: "100%", background: "#0f1117", border: "1px solid #2a3048", borderRadius: 8, padding: "10px 14px", color: "#e2e8f0", fontSize: 13, fontFamily: "inherit", outline: "none" }} />
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 12, color: "#64748b", marginBottom: 6 }}>Şifre</div>
+              <input type="password" value={newUser.password} onChange={e => setNewUser(p => ({ ...p, password: e.target.value }))} placeholder="En az 8 karakter"
+                style={{ width: "100%", background: "#0f1117", border: "1px solid #2a3048", borderRadius: 8, padding: "10px 14px", color: "#e2e8f0", fontSize: 13, fontFamily: "inherit", outline: "none" }} />
+            </div>
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 12, color: "#64748b", marginBottom: 6 }}>Rol</div>
+              <select value={newUser.role} onChange={e => setNewUser(p => ({ ...p, role: e.target.value }))}
+                style={{ width: "100%", background: "#0f1117", border: "1px solid #2a3048", borderRadius: 8, padding: "10px 14px", color: "#e2e8f0", fontSize: 13, fontFamily: "inherit", outline: "none" }}>
+                <option value="viewer">👁️ Görüntüleyici — Sadece okuma</option>
+                <option value="operator">⚙️ Operatör — Komut gönderebilir</option>
+                <option value="admin">👑 Admin — Tam yetki</option>
+              </select>
+            </div>
+            {userError && <div style={{ color: "#f87171", fontSize: 12, marginBottom: 16, background: "#2d1a1a", padding: "8px 12px", borderRadius: 8 }}>{userError}</div>}
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button className="cmd-btn" onClick={() => { setShowUserModal(false); setUserError(""); }}>İptal</button>
+              <button onClick={createUser} style={{ background: "#1e2a40", border: "1px solid #3b5499", borderRadius: 8, padding: "8px 20px", color: "#60a5fa", fontSize: 13, cursor: "pointer", fontFamily: "inherit", fontWeight: 500 }}>✅ Oluştur</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showCommandModal && pendingCommand && (
         <div className="modal-overlay" onClick={() => { setShowCommandModal(false); setPendingCommand(null); }}>
           <div className="modal" onClick={e => e.stopPropagation()}>
-            <div style={{ fontSize: 16, fontWeight: 600, color: "#f1f5f9", marginBottom: 10 }}>
-              {pendingCommand.cmd === "wipe" ? "⚠️ Tehlikeli İşlem" : "Komutu Onayla"}
-            </div>
+            <div style={{ fontSize: 16, fontWeight: 600, color: "#f1f5f9", marginBottom: 10 }}>{pendingCommand.cmd === "wipe" ? "⚠️ Tehlikeli İşlem" : "Komutu Onayla"}</div>
             <div style={{ fontSize: 13, color: "#94a3b8", marginBottom: 22, lineHeight: 1.6 }}>
-              <strong style={{ color: "#e2e8f0" }}>{pendingCommand.device.name}</strong> cihazına{" "}
-              {pendingCommand.cmd === "wipe"
-                ? <span style={{ color: "#f87171" }}>fabrika ayarlarına sıfırlama komutu gönderilecek. Tüm veriler silinecek!</span>
-                : pendingCommand.cmd === "lock"
-                  ? "kilitleme komutu gönderilecek."
-                  : `"${pendingCommand.cmd}" komutu gönderilecek.`
-              }
+              <strong style={{ color: "#e2e8f0" }}>{pendingCommand.device.name || pendingCommand.device.model}</strong> cihazına{" "}
+              {pendingCommand.cmd === "wipe" ? <span style={{ color: "#f87171" }}>fabrika sıfırlama komutu gönderilecek!</span> : `"${pendingCommand.cmd}" komutu gönderilecek.`}
             </div>
             <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
               <button className="cmd-btn" onClick={() => { setShowCommandModal(false); setPendingCommand(null); }}>İptal</button>
-              <button onClick={() => sendCommand(pendingCommand.device, pendingCommand.cmd)}
-                style={{ background: pendingCommand.cmd === "wipe" ? "#2d1a1a" : "#1e2a40", border: `1px solid ${pendingCommand.cmd === "wipe" ? "#7c2626" : "#3b5499"}`, borderRadius: 8, padding: "8px 20px", color: pendingCommand.cmd === "wipe" ? "#f87171" : "#60a5fa", fontSize: 13, cursor: "pointer", fontFamily: "inherit", fontWeight: 500 }}>
+              <button onClick={() => sendCommand(pendingCommand.device, pendingCommand.cmd)} style={{ background: pendingCommand.cmd === "wipe" ? "#2d1a1a" : "#1e2a40", border: `1px solid ${pendingCommand.cmd === "wipe" ? "#7c2626" : "#3b5499"}`, borderRadius: 8, padding: "8px 20px", color: pendingCommand.cmd === "wipe" ? "#f87171" : "#60a5fa", fontSize: 13, cursor: "pointer", fontFamily: "inherit", fontWeight: 500 }}>
                 {pendingCommand.cmd === "wipe" ? "🗑️ Evet, Sıfırla" : "✅ Onayla"}
               </button>
             </div>
@@ -500,10 +1000,9 @@ export default function MDMDashboard() {
         </div>
       )}
 
-      {/* Toast */}
       {toast && (
-        <div style={{ position: "fixed", bottom: 28, right: 28, background: "#1e2340", border: "1px solid #3b5499", borderRadius: 10, padding: "12px 20px", color: "#60a5fa", fontSize: 13, zIndex: 200, maxWidth: 350, boxShadow: "0 8px 30px rgba(0,0,0,.5)" }}>
-          ✅ {toast.msg}
+        <div style={{ position: "fixed", bottom: 28, right: 28, background: toast.type === "error" ? "#2d1a1a" : "#1e2340", border: `1px solid ${toast.type === "error" ? "#7c2626" : "#3b5499"}`, borderRadius: 10, padding: "12px 20px", color: toast.type === "error" ? "#f87171" : "#60a5fa", fontSize: 13, zIndex: 200, maxWidth: 380, boxShadow: "0 8px 30px rgba(0,0,0,.5)" }}>
+          {toast.type === "error" ? "❌" : "✅"} {toast.msg}
         </div>
       )}
     </div>
