@@ -10,6 +10,8 @@ const MOCK_APPS = [
 
 const statusColor = (s) => ({ online: "#22c55e", offline: "#6b7280", locked: "#f59e0b", wiped: "#ef4444", pending: "#818cf8" }[s] || "#6b7280");
 const statusLabel = (s) => ({ online: "Çevrimiçi", offline: "Çevrimdışı", locked: "Kilitli", wiped: "Silindi", pending: "Bekliyor" }[s] || s);
+const roleColor = (r) => ({ admin: "#f87171", operator: "#60a5fa", viewer: "#94a3b8" }[r] || "#94a3b8");
+const roleLabel = (r) => ({ admin: "Admin", operator: "Operatör", viewer: "Görüntüleyici" }[r] || r);
 
 export default function MDMDashboard() {
   const [token, setToken] = useState(() => localStorage.getItem("mdm_token") || null);
@@ -17,11 +19,13 @@ export default function MDMDashboard() {
   const [loginPassword, setLoginPassword] = useState("");
   const [loginError, setLoginError] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
   const [tab, setTab] = useState("overview");
   const [devices, setDevices] = useState([]);
   const [policies, setPolicies] = useState([]);
   const [apps] = useState(MOCK_APPS);
-  const [stats, setStats] = useState({ total_devices: 0, online_devices: 0, offline_devices: 0, locked_devices: 0, non_compliant_devices: 0, pending_commands: 0, total_policies: 0 });
+  const [users, setUsers] = useState([]);
+  const [stats, setStats] = useState({ total_devices: 0, online_devices: 0, offline_devices: 0, locked_devices: 0, non_compliant_devices: 0, pending_commands: 0 });
   const [selectedDevice, setSelectedDevice] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
@@ -34,6 +38,9 @@ export default function MDMDashboard() {
   const [qrLoading, setQrLoading] = useState(false);
   const [reports, setReports] = useState({ summary: null, battery: null, storage: null, commands: null, devices: [] });
   const [reportsLoading, setReportsLoading] = useState(false);
+  const [showUserModal, setShowUserModal] = useState(false);
+  const [newUser, setNewUser] = useState({ email: "", password: "", full_name: "", role: "operator" });
+  const [userLoading, setUserLoading] = useState(false);
 
   const showToast = (msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3500); };
   const authHeaders = () => ({ Authorization: `Bearer ${token}`, "Content-Type": "application/json" });
@@ -49,22 +56,49 @@ export default function MDMDashboard() {
     setLoginLoading(false);
   };
 
-  const logout = () => { localStorage.removeItem("mdm_token"); setToken(null); setDevices([]); setQrData(null); };
+  const logout = () => { localStorage.removeItem("mdm_token"); setToken(null); setDevices([]); setQrData(null); setCurrentUser(null); };
 
   const fetchAll = async () => {
     setApiLoading(true);
     try {
-      const [devResp, statsResp, polResp] = await Promise.all([
+      const [devResp, statsResp, polResp, meResp] = await Promise.all([
         fetch(`${API_URL}/devices/`, { headers: authHeaders() }),
         fetch(`${API_URL}/dashboard/stats`, { headers: authHeaders() }),
         fetch(`${API_URL}/policies/`, { headers: authHeaders() }),
+        fetch(`${API_URL}/auth/me`, { headers: authHeaders() }),
       ]);
       if (devResp.status === 401) { logout(); return; }
       if (devResp.ok) setDevices(await devResp.json());
       if (statsResp.ok) setStats(await statsResp.json());
       if (polResp.ok) setPolicies(await polResp.json());
+      if (meResp.ok) setCurrentUser(await meResp.json());
     } catch { showToast("Veri yüklenemedi", "error"); }
     setApiLoading(false);
+  };
+
+  const fetchUsers = async () => {
+    try {
+      const resp = await fetch(`${API_URL}/auth/users`, { headers: authHeaders() });
+      if (resp.ok) setUsers(await resp.json());
+    } catch { showToast("Kullanıcılar yüklenemedi", "error"); }
+  };
+
+  const createUser = async () => {
+    if (!newUser.email || !newUser.password) { showToast("E-posta ve şifre zorunlu", "error"); return; }
+    setUserLoading(true);
+    try {
+      const resp = await fetch(`${API_URL}/auth/users`, { method: "POST", headers: authHeaders(), body: JSON.stringify(newUser) });
+      if (resp.ok) {
+        showToast("Kullanıcı oluşturuldu");
+        setShowUserModal(false);
+        setNewUser({ email: "", password: "", full_name: "", role: "operator" });
+        fetchUsers();
+      } else {
+        const err = await resp.json();
+        showToast(err.detail || "Kullanıcı oluşturulamadı", "error");
+      }
+    } catch { showToast("Bağlantı hatası", "error"); }
+    setUserLoading(false);
   };
 
   const fetchReports = async () => {
@@ -114,6 +148,7 @@ export default function MDMDashboard() {
 
   useEffect(() => { if (token) fetchAll(); }, [token]);
   useEffect(() => { if (token && tab === "reports") fetchReports(); }, [tab]);
+  useEffect(() => { if (token && tab === "users") fetchUsers(); }, [tab]);
 
   const filteredDevices = devices.filter(d => {
     const name = (d.name || `${d.manufacturer} ${d.model}`).toLowerCase();
@@ -147,6 +182,17 @@ export default function MDMDashboard() {
     </div>
   );
 
+  const navItems = [
+    { id: "overview", icon: "⬡", label: "Genel Bakış" },
+    { id: "devices", icon: "📱", label: "Cihazlar", badge: stats.total_devices || null },
+    { id: "policies", icon: "🛡️", label: "Politikalar" },
+    { id: "apps", icon: "📦", label: "Uygulamalar" },
+    { id: "qr", icon: "📷", label: "QR Kayıt" },
+    { id: "reports", icon: "📊", label: "Raporlar" },
+    ...(currentUser?.role === "admin" ? [{ id: "users", icon: "👥", label: "Kullanıcılar", badge: users.length || null }] : []),
+    { id: "logs", icon: "📋", label: "Komut Geçmişi", badge: commandLog.length || null },
+  ];
+
   return (
     <div style={{ fontFamily: "'DM Sans', system-ui, sans-serif", background: "#0f1117", minHeight: "100vh", color: "#e2e8f0" }}>
       <style>{`
@@ -159,9 +205,11 @@ export default function MDMDashboard() {
         .cmd-btn:hover { background: #1e2a40; color: #60a5fa; border-color: #3b5499; } .cmd-btn.danger:hover { background: #2d1a1a; color: #f87171; border-color: #5c2525; }
         .stat-card { background: #161925; border-radius: 12px; padding: 20px 22px; border: 1px solid #1e2130; flex: 1; }
         .policy-card { background: #161925; border-radius: 12px; padding: 18px 20px; border: 1px solid #1e2130; margin-bottom: 14px; }
-        input[type=text], select { background: #161925; border: 1px solid #2a3048; color: #e2e8f0; padding: 8px 14px; border-radius: 8px; font-size: 13px; font-family: inherit; outline: none; }
+        input[type=text], input[type=email], input[type=password], select { background: #161925; border: 1px solid #2a3048; color: #e2e8f0; padding: 8px 14px; border-radius: 8px; font-size: 13px; font-family: inherit; outline: none; }
+        input[type=text]:focus, input[type=email]:focus, input[type=password]:focus, select:focus { border-color: #3b5499; }
+        select option { background: #161925; }
         .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,.7); display: flex; align-items: center; justify-content: center; z-index: 100; }
-        .modal { background: #161925; border: 1px solid #2a3048; border-radius: 16px; padding: 28px 32px; width: 400px; max-width: 95vw; }
+        .modal { background: #161925; border: 1px solid #2a3048; border-radius: 16px; padding: 28px 32px; width: 440px; max-width: 95vw; }
         .tag { display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: 11px; font-weight: 500; }
         .progress-bar { height: 5px; border-radius: 3px; background: #2a3048; overflow: hidden; }
         .progress-fill { height: 100%; border-radius: 3px; transition: width .4s; }
@@ -174,6 +222,11 @@ export default function MDMDashboard() {
         .qr-btn-primary { background: #1e2340; border: 1px solid #3b5499; border-radius: 8px; padding: 8px 16px; color: #60a5fa; font-size: 13px; cursor: pointer; font-family: inherit; width: 100%; margin-bottom: 8px; }
         .qr-btn-secondary { background: #161925; border: 1px solid #2a3048; border-radius: 8px; padding: 8px 16px; color: #94a3b8; font-size: 13px; cursor: pointer; font-family: inherit; width: 100%; }
         .qr-btn-primary:hover { background: #1e2a50; } .qr-btn-secondary:hover { background: #1e2130; color: #e2e8f0; }
+        .user-card { background: #161925; border-radius: 12px; border: 1px solid #1e2130; padding: 18px 20px; margin-bottom: 12px; display: flex; align-items: center; gap: 16px; }
+        .form-group { margin-bottom: 16px; }
+        .form-label { font-size: 12px; color: #64748b; margin-bottom: 6px; display: block; }
+        .form-input { width: 100%; background: #0f1117; border: 1px solid #2a3048; color: #e2e8f0; padding: 10px 14px; border-radius: 8px; font-size: 13px; font-family: inherit; outline: none; }
+        .form-input:focus { border-color: #3b5499; }
       `}</style>
 
       <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
@@ -189,15 +242,7 @@ export default function MDMDashboard() {
             </div>
           </div>
           <nav style={{ padding: "12px 10px", flex: 1 }}>
-            {[
-              { id: "overview", icon: "⬡", label: "Genel Bakış" },
-              { id: "devices", icon: "📱", label: "Cihazlar", badge: stats.total_devices || null },
-              { id: "policies", icon: "🛡️", label: "Politikalar" },
-              { id: "apps", icon: "📦", label: "Uygulamalar" },
-              { id: "qr", icon: "📷", label: "QR Kayıt" },
-              { id: "reports", icon: "📊", label: "Raporlar" },
-              { id: "logs", icon: "📋", label: "Komut Geçmişi", badge: commandLog.length || null },
-            ].map(item => (
+            {navItems.map(item => (
               <button key={item.id} onClick={() => setTab(item.id)}
                 style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "9px 12px", borderRadius: 8, border: "none", background: tab === item.id ? "#1e2340" : "transparent", color: tab === item.id ? "#60a5fa" : "#8892a4", fontSize: 13, fontFamily: "inherit", fontWeight: 500, cursor: "pointer", marginBottom: 2, textAlign: "left", transition: "all .15s" }}>
                 <span style={{ fontSize: 16 }}>{item.icon}</span>
@@ -207,7 +252,13 @@ export default function MDMDashboard() {
             ))}
           </nav>
           <div style={{ padding: "14px 16px", borderTop: "1px solid #1e2130" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
+            {currentUser && (
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 12, color: "#e2e8f0", fontWeight: 500 }}>{currentUser.full_name || currentUser.email}</div>
+                <span className="tag" style={{ background: "#1e2340", color: roleColor(currentUser.role), fontSize: 10, marginTop: 3 }}>{roleLabel(currentUser.role)}</span>
+              </div>
+            )}
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
               <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 6px #22c55e" }}></div>
               <span style={{ fontSize: 12, color: "#94a3b8" }}>API Çevrimiçi</span>
               {apiLoading && <span style={{ fontSize: 11, color: "#64748b", marginLeft: "auto" }}>⟳</span>}
@@ -222,7 +273,7 @@ export default function MDMDashboard() {
           <div style={{ padding: "16px 28px", borderBottom: "1px solid #1e2130", background: "#0d0f18", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
             <div>
               <div style={{ fontSize: 18, fontWeight: 600, color: "#f1f5f9" }}>
-                {{ overview: "Genel Bakış", devices: "Cihaz Yönetimi", policies: "Politika Yönetimi", apps: "Uygulama Yönetimi", qr: "QR Kayıt", reports: "Raporlar", logs: "Komut Geçmişi" }[tab]}
+                {{ overview: "Genel Bakış", devices: "Cihaz Yönetimi", policies: "Politika Yönetimi", apps: "Uygulama Yönetimi", qr: "QR Kayıt", reports: "Raporlar", users: "Kullanıcı Yönetimi", logs: "Komut Geçmişi" }[tab]}
               </div>
               <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Son güncelleme: {new Date().toLocaleString("tr-TR")}</div>
             </div>
@@ -305,19 +356,13 @@ export default function MDMDashboard() {
                       <div style={{ padding: "50px", textAlign: "center", color: "#64748b", background: "#0d0f18", fontSize: 13 }}>{devices.length === 0 ? "Kayıtlı cihaz yok. QR Kayıt sekmesinden cihaz ekleyin." : "Sonuç bulunamadı"}</div>
                     ) : filteredDevices.map(device => (
                       <div key={device.id} className={`device-row ${selectedDevice?.id === device.id ? "selected" : ""}`} onClick={() => setSelectedDevice(device)}>
-                        <div>
-                          <div style={{ fontWeight: 500, color: "#e2e8f0", fontSize: 13 }}>{device.name || `${device.manufacturer} ${device.model}`}</div>
-                          <div style={{ color: "#64748b", fontSize: 11 }}>{device.owner_name || "—"}</div>
-                        </div>
+                        <div><div style={{ fontWeight: 500, color: "#e2e8f0", fontSize: 13 }}>{device.name || `${device.manufacturer} ${device.model}`}</div><div style={{ color: "#64748b", fontSize: 11 }}>{device.owner_name || "—"}</div></div>
                         <div><div style={{ fontSize: 12, color: "#94a3b8" }}>{device.model}</div><div style={{ fontSize: 11, color: "#64748b" }}>Android {device.android_version}</div></div>
                         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                           <div style={{ width: 7, height: 7, borderRadius: "50%", background: statusColor(device.status), boxShadow: device.status === "online" ? `0 0 5px ${statusColor(device.status)}` : "none", flexShrink: 0 }}></div>
                           <span style={{ fontSize: 12, color: statusColor(device.status) }}>{statusLabel(device.status)}</span>
                         </div>
-                        <div>
-                          <div style={{ fontSize: 12, color: device.battery_level < 20 ? "#f87171" : "#94a3b8", fontFamily: "monospace" }}>%{device.battery_level}</div>
-                          <div className="progress-bar" style={{ width: 60, marginTop: 4 }}><div className="progress-fill" style={{ width: `${device.battery_level}%`, background: device.battery_level < 20 ? "#ef4444" : device.battery_level < 50 ? "#f59e0b" : "#22c55e" }} /></div>
-                        </div>
+                        <div><div style={{ fontSize: 12, color: device.battery_level < 20 ? "#f87171" : "#94a3b8", fontFamily: "monospace" }}>%{device.battery_level}</div><div className="progress-bar" style={{ width: 60, marginTop: 4 }}><div className="progress-fill" style={{ width: `${device.battery_level}%`, background: device.battery_level < 20 ? "#ef4444" : device.battery_level < 50 ? "#f59e0b" : "#22c55e" }} /></div></div>
                         <div style={{ fontSize: 12, color: "#94a3b8", fontFamily: "monospace" }}>{device.storage_used_gb}/{device.storage_total_gb} GB</div>
                         <div style={{ fontSize: 11, color: "#64748b" }}>{device.enrolled_at ? new Date(device.enrolled_at).toLocaleDateString("tr-TR") : "—"}</div>
                         <div style={{ display: "flex", gap: 6 }}>
@@ -367,10 +412,7 @@ export default function MDMDashboard() {
                 {policies.map(policy => (
                   <div key={policy.id} className="policy-card">
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
-                      <div>
-                        <div style={{ fontSize: 15, fontWeight: 600, color: "#f1f5f9" }}>{policy.name}</div>
-                        <div style={{ fontSize: 12, color: "#64748b", marginTop: 3 }}>{policy.device_count || 0} cihaz</div>
-                      </div>
+                      <div><div style={{ fontSize: 15, fontWeight: 600, color: "#f1f5f9" }}>{policy.name}</div><div style={{ fontSize: 12, color: "#64748b", marginTop: 3 }}>{policy.device_count || 0} cihaz</div></div>
                       <div style={{ display: "flex", gap: 8 }}>
                         <button className="cmd-btn" style={{ fontSize: 12 }} onClick={() => { setTab("qr"); generateQr(policy.id, "provisioning"); }}>📱 Sıfır QR</button>
                         <button className="cmd-btn" style={{ fontSize: 12 }} onClick={() => { setTab("qr"); generateQr(policy.id, "simple"); }}>📷 Hızlı QR</button>
@@ -395,10 +437,7 @@ export default function MDMDashboard() {
                   <div key={app.id} style={{ background: "#161925", borderRadius: 14, border: "1px solid #1e2130", padding: 20 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
                       <div style={{ width: 44, height: 44, borderRadius: 12, background: "#1e2340", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>📦</div>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9" }}>{app.name}</div>
-                        <div style={{ fontSize: 10, color: "#64748b", fontFamily: "monospace" }}>{app.package_name}</div>
-                      </div>
+                      <div style={{ flex: 1 }}><div style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9" }}>{app.name}</div><div style={{ fontSize: 10, color: "#64748b", fontFamily: "monospace" }}>{app.package_name}</div></div>
                       {app.is_required && <span className="tag" style={{ background: "#1a2d1a", color: "#4ade80", fontSize: 10 }}>Zorunlu</span>}
                     </div>
                     <div style={{ fontSize: 12, color: "#64748b", marginBottom: 8 }}>Sürüm: <span style={{ color: "#94a3b8", fontFamily: "monospace" }}>{app.version}</span></div>
@@ -440,13 +479,13 @@ export default function MDMDashboard() {
                 {qrLoading && <div style={{ background: "#161925", borderRadius: 14, border: "1px solid #1e2130", padding: 40, textAlign: "center" }}><div style={{ fontSize: 32, marginBottom: 12 }}>⏳</div><div style={{ fontSize: 14, color: "#64748b" }}>QR kod oluşturuluyor...</div></div>}
                 {qrData && !qrLoading && (
                   <div style={{ background: "#161925", borderRadius: 14, border: "1px solid #1e2130", padding: 40, textAlign: "center" }}>
-                    <div style={{ fontSize: 16, fontWeight: 600, color: "#f1f5f9", marginBottom: 6 }}>{qrData.type === "simple" ? "📷 Hızlı Kayıt QR Kodu" : "📱 Sıfır Kurulum QR Kodu"}</div>
-                    <div style={{ fontSize: 12, color: "#64748b", marginBottom: 28 }}>Geçerlilik: {new Date(qrData.expires_at).toLocaleString("tr-TR")} (24 saat)</div>
+                    <div style={{ fontSize: 16, fontWeight: 600, color: "#f1f5f9", marginBottom: 6 }}>{qrData.type === "simple" ? "📷 Hızlı Kayıt QR" : "📱 Sıfır Kurulum QR"}</div>
+                    <div style={{ fontSize: 12, color: "#64748b", marginBottom: 28 }}>Geçerlilik: {new Date(qrData.expires_at).toLocaleString("tr-TR")}</div>
                     <div style={{ display: "inline-block", background: "white", padding: 16, borderRadius: 12 }}>
                       <img src={qrData.qr_image} alt="QR Kod" style={{ width: 240, height: 240, display: "block" }} />
                     </div>
                     <div style={{ marginTop: 24, fontSize: 13, color: "#64748b", lineHeight: 2, background: "#0f1117", padding: 16, borderRadius: 10, textAlign: "left", maxWidth: 400, margin: "24px auto 0" }}>
-                      {qrData.type === "simple" ? (<><div>1. Telefonda <strong style={{ color: "#60a5fa" }}>MDM Agent</strong> uygulamasını aç</div><div>2. <strong style={{ color: "#60a5fa" }}>"QR ile Kayıt"</strong> butonuna bas</div><div>3. Kamerayı QR koda tut → Otomatik kayıt</div></>) : (<><div>1. Telefonu <strong style={{ color: "#60a5fa" }}>fabrika ayarlarına sıfırla</strong></div><div>2. Wi-Fi bağlantısı ekranında <strong style={{ color: "#60a5fa" }}>ekrana 6 kez dokun</strong></div><div>3. QR okuyucu açılır → Bu QR'ı tara</div><div>4. Uygulama otomatik yüklenir ✅</div></>)}
+                      {qrData.type === "simple" ? (<><div>1. MDM Agent uygulamasını aç</div><div>2. "QR ile Kayıt" butonuna bas</div><div>3. QR'ı tara → Otomatik kayıt</div></>) : (<><div>1. Telefonu fabrika ayarlarına sıfırla</div><div>2. Wi-Fi ekranında ekrana 6 kez dokun</div><div>3. QR okuyucu açılır → Tara → Otomatik kurulum ✅</div></>)}
                     </div>
                   </div>
                 )}
@@ -462,19 +501,11 @@ export default function MDMDashboard() {
                     {reportsLoading ? "⟳ Yükleniyor..." : "🔄 Yenile"}
                   </button>
                 </div>
-
                 {reportsLoading && <div style={{ textAlign: "center", padding: "60px", color: "#64748b" }}>⏳ Raporlar yükleniyor...</div>}
-
                 {!reportsLoading && reports.summary && (
                   <div>
-                    {/* Özet Kartları */}
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 20 }}>
-                      {[
-                        { label: "Toplam Cihaz", val: reports.summary.total_devices, color: "#60a5fa", icon: "📱" },
-                        { label: "Uyumluluk Oranı", val: `%${reports.summary.compliance?.rate || 0}`, color: "#22c55e", icon: "✅" },
-                        { label: "Çevrimiçi", val: reports.summary.by_status?.online || 0, color: "#22c55e", icon: "🟢" },
-                        { label: "Uyumsuz", val: reports.summary.compliance?.non_compliant || 0, color: "#f87171", icon: "⚠️" },
-                      ].map(s => (
+                      {[{ label: "Toplam Cihaz", val: reports.summary.total_devices, color: "#60a5fa", icon: "📱" }, { label: "Uyumluluk Oranı", val: `%${reports.summary.compliance?.rate || 0}`, color: "#22c55e", icon: "✅" }, { label: "Çevrimiçi", val: reports.summary.by_status?.online || 0, color: "#22c55e", icon: "🟢" }, { label: "Uyumsuz", val: reports.summary.compliance?.non_compliant || 0, color: "#f87171", icon: "⚠️" }].map(s => (
                         <div key={s.label} className="stat-card" style={{ textAlign: "center" }}>
                           <div style={{ fontSize: 22, marginBottom: 6 }}>{s.icon}</div>
                           <div style={{ fontSize: 26, fontWeight: 700, color: s.color, fontFamily: "'DM Mono', monospace" }}>{s.val}</div>
@@ -482,124 +513,44 @@ export default function MDMDashboard() {
                         </div>
                       ))}
                     </div>
-
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
-                      {/* Batarya Raporu */}
                       {reports.battery && (
                         <div className="report-card">
                           <div style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9", marginBottom: 16 }}>🔋 Batarya Durumu</div>
-                          <div style={{ marginBottom: 12 }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                              <span style={{ fontSize: 12, color: "#64748b" }}>Ortalama batarya</span>
-                              <span style={{ fontSize: 12, fontWeight: 600, color: "#60a5fa" }}>%{reports.battery.average}</span>
-                            </div>
-                          </div>
-                          {reports.battery.critical?.length > 0 && (
-                            <div style={{ marginBottom: 10 }}>
-                              <div style={{ fontSize: 11, color: "#f87171", marginBottom: 6, fontWeight: 600 }}>⚠️ KRİTİK (%0-20)</div>
-                              {reports.battery.critical.map((d, i) => (
-                                <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 12 }}>
-                                  <span style={{ color: "#94a3b8" }}>{d.name}</span>
-                                  <span style={{ color: "#f87171", fontFamily: "monospace" }}>%{d.battery}</span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                          {reports.battery.low?.length > 0 && (
-                            <div>
-                              <div style={{ fontSize: 11, color: "#f59e0b", marginBottom: 6, fontWeight: 600 }}>⚡ DÜŞÜK (%20-50)</div>
-                              {reports.battery.low.map((d, i) => (
-                                <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 12 }}>
-                                  <span style={{ color: "#94a3b8" }}>{d.name}</span>
-                                  <span style={{ color: "#f59e0b", fontFamily: "monospace" }}>%{d.battery}</span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                          {(!reports.battery.critical?.length && !reports.battery.low?.length) && <div style={{ color: "#22c55e", fontSize: 13, textAlign: "center", padding: "10px 0" }}>✅ Tüm cihazlar iyi durumda</div>}
+                          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}><span style={{ fontSize: 12, color: "#64748b" }}>Ortalama</span><span style={{ fontSize: 12, fontWeight: 600, color: "#60a5fa" }}>%{reports.battery.average}</span></div>
+                          {reports.battery.critical?.length > 0 && <><div style={{ fontSize: 11, color: "#f87171", marginBottom: 6, fontWeight: 600 }}>⚠️ KRİTİK (%0-20)</div>{reports.battery.critical.map((d, i) => (<div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 12 }}><span style={{ color: "#94a3b8" }}>{d.name}</span><span style={{ color: "#f87171", fontFamily: "monospace" }}>%{d.battery}</span></div>))}</>}
+                          {reports.battery.low?.length > 0 && <><div style={{ fontSize: 11, color: "#f59e0b", marginBottom: 6, fontWeight: 600, marginTop: 10 }}>⚡ DÜŞÜK (%20-50)</div>{reports.battery.low.map((d, i) => (<div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 12 }}><span style={{ color: "#94a3b8" }}>{d.name}</span><span style={{ color: "#f59e0b", fontFamily: "monospace" }}>%{d.battery}</span></div>))}</>}
+                          {(!reports.battery.critical?.length && !reports.battery.low?.length) && <div style={{ color: "#22c55e", fontSize: 13, textAlign: "center", padding: "10px 0" }}>✅ Tüm cihazlar iyi</div>}
                         </div>
                       )}
-
-                      {/* Depolama Raporu */}
                       {reports.storage && (
                         <div className="report-card">
-                          <div style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9", marginBottom: 16 }}>💾 Depolama Durumu</div>
-                          {reports.storage.critical?.length > 0 && (
-                            <div style={{ marginBottom: 10 }}>
-                              <div style={{ fontSize: 11, color: "#f87171", marginBottom: 6, fontWeight: 600 }}>⚠️ KRİTİK (%90+)</div>
-                              {reports.storage.critical.map((d, i) => (
-                                <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 12 }}>
-                                  <span style={{ color: "#94a3b8" }}>{d.name}</span>
-                                  <span style={{ color: "#f87171", fontFamily: "monospace" }}>%{d.percent}</span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                          {reports.storage.warning?.length > 0 && (
-                            <div style={{ marginBottom: 10 }}>
-                              <div style={{ fontSize: 11, color: "#f59e0b", marginBottom: 6, fontWeight: 600 }}>⚡ UYARI (%75-90)</div>
-                              {reports.storage.warning.map((d, i) => (
-                                <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 12 }}>
-                                  <span style={{ color: "#94a3b8" }}>{d.name}</span>
-                                  <span style={{ color: "#f59e0b", fontFamily: "monospace" }}>%{d.percent}</span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                          {(!reports.storage.critical?.length && !reports.storage.warning?.length) && <div style={{ color: "#22c55e", fontSize: 13, textAlign: "center", padding: "10px 0" }}>✅ Tüm cihazlar iyi durumda</div>}
+                          <div style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9", marginBottom: 16 }}>💾 Depolama</div>
+                          {reports.storage.critical?.length > 0 && <><div style={{ fontSize: 11, color: "#f87171", marginBottom: 6, fontWeight: 600 }}>⚠️ KRİTİK (%90+)</div>{reports.storage.critical.map((d, i) => (<div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 12 }}><span style={{ color: "#94a3b8" }}>{d.name}</span><span style={{ color: "#f87171", fontFamily: "monospace" }}>%{d.percent}</span></div>))}</>}
+                          {reports.storage.warning?.length > 0 && <><div style={{ fontSize: 11, color: "#f59e0b", marginBottom: 6, fontWeight: 600, marginTop: 10 }}>⚡ UYARI (%75-90)</div>{reports.storage.warning.map((d, i) => (<div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 12 }}><span style={{ color: "#94a3b8" }}>{d.name}</span><span style={{ color: "#f59e0b", fontFamily: "monospace" }}>%{d.percent}</span></div>))}</>}
+                          {(!reports.storage.critical?.length && !reports.storage.warning?.length) && <div style={{ color: "#22c55e", fontSize: 13, textAlign: "center", padding: "10px 0" }}>✅ Tüm cihazlar iyi</div>}
                         </div>
                       )}
                     </div>
-
-                    {/* Komut Raporu */}
                     {reports.commands && (
                       <div className="report-card" style={{ marginBottom: 16 }}>
-                        <div style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9", marginBottom: 16 }}>📋 Son 7 Günün Komut İstatistikleri</div>
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 16 }}>
-                          {[
-                            { label: "Toplam Komut", val: reports.commands.total_commands, color: "#60a5fa" },
-                            { label: "Başarılı", val: reports.commands.by_status?.success || 0, color: "#22c55e" },
-                            { label: "Başarısız", val: reports.commands.by_status?.failed || 0, color: "#f87171" },
-                            { label: "Başarı Oranı", val: `%${reports.commands.success_rate}`, color: "#22c55e" },
-                          ].map(s => (
+                        <div style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9", marginBottom: 16 }}>📋 Son 7 Günün Komutları</div>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
+                          {[{ label: "Toplam", val: reports.commands.total_commands, color: "#60a5fa" }, { label: "Başarılı", val: reports.commands.by_status?.success || 0, color: "#22c55e" }, { label: "Başarısız", val: reports.commands.by_status?.failed || 0, color: "#f87171" }, { label: "Başarı Oranı", val: `%${reports.commands.success_rate}`, color: "#22c55e" }].map(s => (
                             <div key={s.label} style={{ background: "#0f1117", borderRadius: 8, padding: 14, textAlign: "center" }}>
                               <div style={{ fontSize: 22, fontWeight: 700, color: s.color, fontFamily: "monospace" }}>{s.val}</div>
                               <div style={{ fontSize: 11, color: "#64748b", marginTop: 4 }}>{s.label}</div>
                             </div>
                           ))}
                         </div>
-                        {reports.commands.by_type && Object.keys(reports.commands.by_type).length > 0 && (
-                          <div>
-                            <div style={{ fontSize: 12, color: "#64748b", marginBottom: 10 }}>Komut Türlerine Göre</div>
-                            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                              {Object.entries(reports.commands.by_type).map(([type, count]) => (
-                                <span key={type} className="tag" style={{ background: "#1e2340", color: "#60a5fa", padding: "4px 12px", fontSize: 12 }}>{type}: {count}</span>
-                              ))}
-                            </div>
-                          </div>
-                        )}
                       </div>
                     )}
-
-                    {/* Cihaz Detay Tablosu */}
                     {reports.devices?.length > 0 && (
                       <div className="report-card">
                         <div style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9", marginBottom: 16 }}>📱 Cihaz Detay Raporu</div>
                         <div style={{ overflowX: "auto" }}>
                           <table className="report-table">
-                            <thead>
-                              <tr>
-                                <th>Cihaz</th>
-                                <th>Sahip</th>
-                                <th>Model</th>
-                                <th>Android</th>
-                                <th>Durum</th>
-                                <th>Batarya</th>
-                                <th>Depolama</th>
-                                <th>Politika</th>
-                                <th>Son Görülme</th>
-                              </tr>
-                            </thead>
+                            <thead><tr><th>Cihaz</th><th>Sahip</th><th>Model</th><th>Android</th><th>Durum</th><th>Batarya</th><th>Depolama</th><th>Politika</th><th>Son Görülme</th></tr></thead>
                             <tbody>
                               {reports.devices.map(d => (
                                 <tr key={d.id}>
@@ -621,12 +572,72 @@ export default function MDMDashboard() {
                     )}
                   </div>
                 )}
-
                 {!reportsLoading && !reports.summary && (
                   <div style={{ textAlign: "center", padding: "60px", color: "#64748b" }}>
                     <div style={{ fontSize: 32, marginBottom: 12 }}>📊</div>
-                    <div style={{ fontSize: 14 }}>Raporları yüklemek için yenile butonuna bas</div>
                     <button onClick={fetchReports} style={{ marginTop: 16, background: "#3b5499", border: "none", borderRadius: 8, padding: "10px 24px", color: "#fff", fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>📊 Raporları Yükle</button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* KULLANICI YÖNETİMİ */}
+            {tab === "users" && (
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+                  <div>
+                    <div style={{ fontSize: 15, fontWeight: 600, color: "#f1f5f9" }}>Kullanıcı Yönetimi</div>
+                    <div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>{users.length} kullanıcı kayıtlı</div>
+                  </div>
+                  <button onClick={() => setShowUserModal(true)}
+                    style={{ background: "#3b5499", border: "none", borderRadius: 8, padding: "10px 20px", color: "#fff", fontSize: 13, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>
+                    + Yeni Kullanıcı
+                  </button>
+                </div>
+
+                {/* Rol Açıklamaları */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 24 }}>
+                  {[
+                    { role: "admin", icon: "👑", label: "Admin", desc: "Tüm yetkiler. Kullanıcı yönetimi, wipe komutu dahil." },
+                    { role: "operator", icon: "🔧", label: "Operatör", desc: "Cihaz yönetimi, komut gönderme. Wipe ve kullanıcı yönetimi hariç." },
+                    { role: "viewer", icon: "👁️", label: "Görüntüleyici", desc: "Sadece okuma. Hiçbir değişiklik yapamaz." },
+                  ].map(r => (
+                    <div key={r.role} style={{ background: "#161925", borderRadius: 12, border: "1px solid #1e2130", padding: 16 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                        <span style={{ fontSize: 18 }}>{r.icon}</span>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: roleColor(r.role) }}>{r.label}</span>
+                      </div>
+                      <div style={{ fontSize: 12, color: "#64748b", lineHeight: 1.6 }}>{r.desc}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Kullanıcı Listesi */}
+                {users.map(user => (
+                  <div key={user.id} className="user-card">
+                    <div style={{ width: 44, height: 44, borderRadius: 12, background: "#1e2340", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>
+                      {user.role === "admin" ? "👑" : user.role === "operator" ? "🔧" : "👁️"}
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9" }}>{user.full_name || "—"}</div>
+                      <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>{user.email}</div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      <span className="tag" style={{ background: "#1e2340", color: roleColor(user.role), padding: "4px 12px" }}>{roleLabel(user.role)}</span>
+                      <span className="tag" style={{ background: user.is_active ? "#1a2d1a" : "#2d1a1a", color: user.is_active ? "#4ade80" : "#f87171", padding: "4px 12px" }}>
+                        {user.is_active ? "Aktif" : "Pasif"}
+                      </span>
+                      <div style={{ fontSize: 11, color: "#64748b" }}>
+                        {user.last_login ? `Son giriş: ${new Date(user.last_login).toLocaleDateString("tr-TR")}` : "Hiç giriş yapmadı"}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                {users.length === 0 && (
+                  <div style={{ textAlign: "center", padding: "60px", color: "#64748b" }}>
+                    <div style={{ fontSize: 32, marginBottom: 12 }}>👥</div>
+                    <div>Kullanıcı yok. Yeni kullanıcı ekleyin.</div>
                   </div>
                 )}
               </div>
@@ -655,6 +666,43 @@ export default function MDMDashboard() {
         </div>
       </div>
 
+      {/* Yeni Kullanıcı Modal */}
+      {showUserModal && (
+        <div className="modal-overlay" onClick={() => setShowUserModal(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div style={{ fontSize: 16, fontWeight: 600, color: "#f1f5f9", marginBottom: 20 }}>👥 Yeni Kullanıcı Oluştur</div>
+            <div className="form-group">
+              <label className="form-label">Ad Soyad</label>
+              <input className="form-input" type="text" placeholder="Ahmet Yılmaz" value={newUser.full_name} onChange={e => setNewUser({ ...newUser, full_name: e.target.value })} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">E-posta *</label>
+              <input className="form-input" type="email" placeholder="ahmet@sirket.com" value={newUser.email} onChange={e => setNewUser({ ...newUser, email: e.target.value })} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Şifre *</label>
+              <input className="form-input" type="password" placeholder="En az 8 karakter" value={newUser.password} onChange={e => setNewUser({ ...newUser, password: e.target.value })} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Rol</label>
+              <select className="form-input" value={newUser.role} onChange={e => setNewUser({ ...newUser, role: e.target.value })}>
+                <option value="operator">Operatör</option>
+                <option value="viewer">Görüntüleyici</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
+              <button className="cmd-btn" onClick={() => setShowUserModal(false)}>İptal</button>
+              <button onClick={createUser} disabled={userLoading}
+                style={{ background: "#3b5499", border: "none", borderRadius: 8, padding: "8px 20px", color: "#fff", fontSize: 13, cursor: userLoading ? "not-allowed" : "pointer", fontFamily: "inherit", fontWeight: 500 }}>
+                {userLoading ? "⏳ Oluşturuluyor..." : "✅ Oluştur"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Komut Onay Modal */}
       {showCommandModal && pendingCommand && (
         <div className="modal-overlay" onClick={() => { setShowCommandModal(false); setPendingCommand(null); }}>
           <div className="modal" onClick={e => e.stopPropagation()}>
