@@ -510,18 +510,24 @@ export default function App() {
                 generateQr={generateQr}
               />
             )}
-            {tab === "policies" && (
-              <Policies
-                policies={policies}
-                apps={apps}
-                setPolicyModal={setPolicyModal}
-                setEditPolicy={setEditPolicy}
-                setPolicyForm={setPolicyForm}
-                deletePolicy={deletePolicy}
-                sendAll={sendAll}
-                currentUser={currentUser}
-              />
-            )}
+          {tab === "policies" && (
+  <Policies
+    policies={policies}
+    devices={devices}
+    apps={apps}
+    setPolicyModal={setPolicyModal}
+    setEditPolicy={setEditPolicy}
+    setPolicyForm={setPolicyForm}
+    setConfirmModal={setConfirmModal}
+    deletePolicy={deletePolicy}
+    setCommandLog={setCommandLog}
+    setTab={setTab}
+    generateQr={generateQr}
+    setEnrollPolicyId={setEnrollPolicyId}
+    sendAll={sendAll}
+    currentUser={currentUser}
+  />
+)}
             {tab === "profiles" && (
               <Profiles
                 profiles={profiles}
