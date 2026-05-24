@@ -472,17 +472,21 @@ export default function App() {
 
           {/* İçerik */}
           <div style={{ flex: 1, padding: 22, overflow: "auto" }}>
-            {tab === "dashboard" && (
-              <Dashboard
-                stats={stats}
-                devices={devices}
-                policies={policies}
-                apps={apps}
-                alerts={dynamicAlerts}
-                commandLog={commandLog}
-                setTab={setTab}
-              />
-            )}
+          {tab === "dashboard" && (
+  <Dashboard
+    stats={stats}
+    devices={devices}
+    policies={policies}
+    apps={apps}
+    alerts={dynamicAlerts}
+    commandLog={commandLog}
+    setTab={setTab}
+    setSelectedDevice={setSelectedDevice}
+    sendAll={sendAll}
+    exportCSV={exportCSV}
+    generateQr={generateQr}
+  />
+)}
             {tab === "devices" && (
               <Devices
                 devices={devices}
