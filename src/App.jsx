@@ -450,3 +450,224 @@ export default function App() {
           </div>
 
           {/* Uyarılar dropdown */}
+          {/* Uyarılar dropdown */}
+          {showAlerts && (
+            <div style={{ position: "absolute", right: 22, top: 60, width: 360, maxHeight: 400, overflowY: "auto", background: "#0f1220", border: "1px solid #2a3048", borderRadius: 10, zIndex: 50, boxShadow: "0 10px 30px rgba(0,0,0,.5)" }}>
+              <div style={{ padding: "10px 14px", borderBottom: "1px solid #1a1f35", fontSize: 12, fontWeight: 600, color: "#94a3b8" }}>
+                Uyarılar ({dynamicAlerts.length})
+              </div>
+              {dynamicAlerts.length === 0 ? (
+                <div style={{ padding: 20, textAlign: "center", color: "#475569", fontSize: 12 }}>Uyarı yok ✓</div>
+              ) : dynamicAlerts.slice(0, 20).map(a => (
+                <div key={a.id} style={{ padding: "10px 14px", borderBottom: "1px solid #1a1f35", fontSize: 12, display: "flex", gap: 10, alignItems: "flex-start" }}>
+                  <span style={{ fontSize: 14 }}>{a.type === "critical" ? "🔴" : a.type === "warning" ? "🟡" : "🔵"}</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ color: "#e2e8f0" }}>{a.msg}</div>
+                    <div style={{ color: "#64748b", fontSize: 10, marginTop: 2 }}>{a.device}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* İçerik */}
+          <div style={{ flex: 1, padding: 22, overflow: "auto" }}>
+            {tab === "dashboard" && (
+              <Dashboard
+                stats={stats}
+                devices={devices}
+                policies={policies}
+                apps={apps}
+                alerts={dynamicAlerts}
+                commandLog={commandLog}
+                setTab={setTab}
+              />
+            )}
+            {tab === "devices" && (
+              <Devices
+                devices={devices}
+                searchQuery={searchQuery} setSearchQuery={setSearchQuery}
+                filterStatus={filterStatus} setFilterStatus={setFilterStatus}
+                selectedDevice={selectedDevice} setSelectedDevice={setSelectedDevice}
+                setCmdModal={setCmdModal}
+                setConfirmModal={setConfirmModal}
+                sendCmd={sendCmd}
+                exportCSV={exportCSV}
+                currentUser={currentUser}
+              />
+            )}
+            {tab === "enrollment" && (
+              <Enrollment
+                qrData={qrData} qrLoading={qrLoading}
+                enrollMethod={enrollMethod} setEnrollMethod={setEnrollMethod}
+                enrollPolicyId={enrollPolicyId} setEnrollPolicyId={setEnrollPolicyId}
+                policies={policies}
+                generateQr={generateQr}
+              />
+            )}
+            {tab === "policies" && (
+              <Policies
+                policies={policies}
+                apps={apps}
+                setPolicyModal={setPolicyModal}
+                setEditPolicy={setEditPolicy}
+                setPolicyForm={setPolicyForm}
+                deletePolicy={deletePolicy}
+                sendAll={sendAll}
+                currentUser={currentUser}
+              />
+            )}
+            {tab === "profiles" && (
+              <Profiles
+                profiles={profiles}
+                setProfiles={setProfiles}
+                setProfileModal={setProfileModal}
+                setEditProfile={setEditProfile}
+                setProfileForm={setProfileForm}
+                toast$={toast$}
+                currentUser={currentUser}
+              />
+            )}
+            {tab === "apps" && (
+              <Apps
+                apps={apps}
+                setAppModal={setAppModal}
+                setEditApp={setEditApp}
+                setAppForm={setAppForm}
+                deleteApp={deleteApp}
+                deployApp={deployApp}
+                currentUser={currentUser}
+              />
+            )}
+            {tab === "kiosk" && (
+              <Kiosk
+                devices={devices}
+                apps={apps}
+                sendCmd={sendCmd}
+                toast$={toast$}
+              />
+            )}
+            {tab === "geofence" && (
+              <Geofence
+                mapLocations={mapLocations}
+                mapLoading={mapLoading}
+                selectedMapDev={selectedMapDev}
+                setSelectedMapDev={setSelectedMapDev}
+                fetchMap={fetchMap}
+                devices={devices}
+              />
+            )}
+            {tab === "reports" && (
+              <Reports
+                reports={reports}
+                reportsLoading={reportsLoading}
+                fetchReports={fetchReports}
+                exportCSV={exportCSV}
+                devices={devices}
+              />
+            )}
+            {tab === "alerts" && (
+              <Alerts
+                alerts={dynamicAlerts}
+                devices={devices}
+                setTab={setTab}
+                setSelectedDevice={setSelectedDevice}
+              />
+            )}
+            {tab === "logs" && (
+              <Logs
+                commandLog={commandLog}
+                setCommandLog={setCommandLog}
+                exportCSV={exportCSV}
+              />
+            )}
+            {tab === "users" && currentUser?.role === "admin" && (
+              <Users
+                users={users}
+                setUserModal={setUserModal}
+                currentUser={currentUser}
+                fetchUsers={fetchUsers}
+                toast$={toast$}
+              />
+            )}
+            {tab === "settings" && (
+              <Settings
+                currentUser={currentUser}
+                logout={logout}
+                toast$={toast$}
+                devices={devices}
+                policies={policies}
+              />
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Toast */}
+      <div id="mdm-toast" style={{
+        display: "none", position: "fixed", bottom: 24, right: 24, zIndex: 9999,
+        padding: "12px 18px", borderRadius: 10, fontSize: 13, fontWeight: 500,
+        border: "1px solid", alignItems: "center", gap: 8, minWidth: 240,
+        boxShadow: "0 8px 24px rgba(0,0,0,.4)"
+      }} />
+
+      {/* Modallar */}
+      {cmdModal && (
+        <CmdModal
+          cmdModal={cmdModal}
+          setCmdModal={setCmdModal}
+          sendCmd={sendCmd}
+        />
+      )}
+      {confirmModal && (
+        <ConfirmModal
+          confirmModal={confirmModal}
+          setConfirmModal={setConfirmModal}
+        />
+      )}
+      {policyModal && (
+        <PolicyModal
+          policyForm={policyForm}
+          setPolicyForm={setPolicyForm}
+          editPolicy={editPolicy}
+          setEditPolicy={setEditPolicy}
+          setPolicyModal={setPolicyModal}
+          createPolicy={createPolicy}
+          policyLoading={policyLoading}
+          apps={apps}
+        />
+      )}
+      {profileModal && (
+        <ProfileModal
+          profileForm={profileForm}
+          setProfileForm={setProfileForm}
+          editProfile={editProfile}
+          setEditProfile={setEditProfile}
+          setProfileModal={setProfileModal}
+          saveProfile={saveProfile}
+          profileLoading={profileLoading}
+        />
+      )}
+      {appModal && (
+        <AppModal
+          appForm={appForm}
+          setAppForm={setAppForm}
+          editApp={editApp}
+          setEditApp={setEditApp}
+          setAppModal={setAppModal}
+          addApp={addApp}
+          appLoading={appLoading}
+        />
+      )}
+      {userModal && (
+        <UserModal
+          userForm={userForm}
+          setUserForm={setUserForm}
+          setUserModal={setUserModal}
+          createUser={createUser}
+          userLoading={userLoading}
+        />
+      )}
+    </div>
+  );
+}
