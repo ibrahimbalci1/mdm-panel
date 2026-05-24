@@ -66,8 +66,9 @@ export default function App() {
 
   // ─── Profil ────────────────────────────────────────────────────────────
   const [profiles, setProfiles] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("mdm_profiles") || "null") || DEFAULT_PROFILES; } catch { return DEFAULT_PROFILES; }
-  });
+  try { return JSON.parse(localStorage.getItem("mdm_profiles") || "[]"); }
+  catch { return []; }
+});;
   const [profileModal, setProfileModal] = useState(false);
   const [profileForm, setProfileForm] = useState({ name: "", type: "wifi", config: {} });
   const [profileLoading, setProfileLoading] = useState(false);
@@ -529,16 +530,17 @@ export default function App() {
   />
 )}
             {tab === "profiles" && (
-              <Profiles
-                profiles={profiles}
-                setProfiles={setProfiles}
-                setProfileModal={setProfileModal}
-                setEditProfile={setEditProfile}
-                setProfileForm={setProfileForm}
-                toast$={toast$}
-                currentUser={currentUser}
-              />
-            )}
+  <Profiles
+    profiles={profiles}
+    setProfiles={setProfiles}
+    setProfileModal={setProfileModal}
+    setEditProfile={setEditProfile}
+    setProfileForm={setProfileForm}
+    setConfirmModal={setConfirmModal}
+    devices={devices}
+    currentUser={currentUser}
+  />
+)}
             {tab === "apps" && (
               <Apps
                 apps={apps}
