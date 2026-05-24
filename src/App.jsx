@@ -487,19 +487,20 @@ export default function App() {
     generateQr={generateQr}
   />
 )}
-            {tab === "devices" && (
-              <Devices
-                devices={devices}
-                searchQuery={searchQuery} setSearchQuery={setSearchQuery}
-                filterStatus={filterStatus} setFilterStatus={setFilterStatus}
-                selectedDevice={selectedDevice} setSelectedDevice={setSelectedDevice}
-                setCmdModal={setCmdModal}
-                setConfirmModal={setConfirmModal}
-                sendCmd={sendCmd}
-                exportCSV={exportCSV}
-                currentUser={currentUser}
-              />
-            )}
+           {tab === "devices" && (
+  <Devices
+    devices={devices}
+    searchQuery={searchQuery} setSearchQuery={setSearchQuery}
+    filterStatus={filterStatus} setFilterStatus={setFilterStatus}
+    selectedDevice={selectedDevice} setSelectedDevice={setSelectedDevice}
+    setCmdModal={setCmdModal}
+    setConfirmModal={setConfirmModal}
+    sendCmd={sendCmd}
+    setTab={setTab}
+    exportCSV={exportCSV}
+    currentUser={currentUser}
+  />
+)}
             {tab === "enrollment" && (
               <Enrollment
                 qrData={qrData} qrLoading={qrLoading}
