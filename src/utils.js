@@ -30,27 +30,10 @@ export const DEFAULT_PROFILES = [
 export const CMD_LABELS = {
   lock:"Kilitle", unlock:"Kilidi Aç", wipe:"Fabrika Sıfırla",
   reboot:"Yeniden Başlat", locate:"Konum Al", push_policy:"Politika Gönder",
-  install_app:"Uygulama Kur", uninstall_app:"Uygulamayı Kaldır",
+  install_app:"Uygulama Yükle", uninstall_app:"Uygulama Kaldır",
+  set_kiosk_launcher:"Kiosk Başlat", disable_kiosk:"Kiosk Kapat",
+  set_kiosk_password:"Kiosk Şifresi",
 };
-
-// Global toast helper - tüm bileşenler kullanabilir
-export const toast = (msg, type = "success") => {
-  const el = document.getElementById("mdm-toast");
-  if (!el) return;
-  el.textContent = (type === "error" ? "❌ " : "✅ ") + msg;
-  el.style.background    = type === "error" ? "#1a0a0a" : "#0a140a";
-  el.style.borderColor   = type === "error" ? "#7c2626" : "#2a5c2a";
-  el.style.color         = type === "error" ? "#f87171" : "#4ade80";
-  el.style.display       = "flex";
-  clearTimeout(el._tid);
-  el._tid = setTimeout(() => { el.style.display = "none"; }, 3500);
-};
-
-// Auth headers — tek noktadan
-export const authHeaders = () => ({
-  Authorization: `Bearer ${localStorage.getItem("mdm_token") || ""}`,
-  "Content-Type": "application/json",
-});
 
 export const CSS = `
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
@@ -59,7 +42,6 @@ export const CSS = `
   @keyframes spin{to{transform:rotate(360deg)}}
   .btn{padding:7px 16px;border-radius:7px;border:1px solid #2a3048;background:#161a2e;color:#94a3b8;font-size:12px;cursor:pointer;font-family:inherit;font-weight:500;transition:all .15s}
   .btn:hover{background:#1e2340;color:#60a5fa;border-color:#3b5bdb}
-  .btn:disabled{opacity:.5;cursor:not-allowed}
   .pr{background:linear-gradient(135deg,#3b5bdb,#228be6)!important;border:none!important;color:#fff!important}
   .pr:hover{opacity:.9!important}
   .dg:hover{background:#2d1a1a!important;color:#f87171!important;border-color:#7c2626!important}
@@ -70,10 +52,10 @@ export const CSS = `
   .tag{display:inline-flex;align-items:center;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:500}
   .bar{height:4px;background:#1e2340;border-radius:2px;overflow:hidden}
   .bf{height:100%;border-radius:2px;transition:width .4s}
-  .dr{display:grid;grid-template-columns:2.5fr 1.2fr 1fr 1fr 1fr 1fr 110px;gap:10px;align-items:center;padding:13px 16px;border-bottom:1px solid #1a1f35;cursor:pointer;font-size:12.5px;transition:background .1s}
+  .dr{display:grid;grid-template-columns:2.5fr 1.2fr 1fr 1fr 1fr 1fr 90px;gap:10px;align-items:center;padding:13px 16px;border-bottom:1px solid #1a1f35;cursor:pointer;font-size:12.5px;transition:background .1s}
   .dr:hover{background:#13172a}.dr.ac{background:#141830;border-left:3px solid #3b5bdb}
   .ov{position:fixed;inset:0;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;z-index:200;backdrop-filter:blur(4px)}
-  .mo{background:#0f1220;border:1px solid #2a3048;border-radius:16px;padding:28px 32px;width:480px;max-width:95vw;max-height:90vh;overflow-y:auto}
+  .mo{background:#0f1220;border:1px solid #2a3048;border-radius:16px;padding:28px 32px;width:480px;max-width:95vw}
   .fi{width:100%;background:#0c0e1a;border:1px solid #2a3048;color:#e2e8f0;padding:10px 12px;border-radius:8px;font-size:13px;font-family:inherit;outline:none;transition:border .15s}
   .fi:focus{border-color:#3b5bdb}
   .fl{font-size:11px;color:#64748b;margin-bottom:5px;display:block;text-transform:uppercase;letter-spacing:.05em}
