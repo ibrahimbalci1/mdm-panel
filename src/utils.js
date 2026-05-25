@@ -64,3 +64,21 @@ export const CSS = `
   .mcard{padding:12px;border-radius:10px;border:1px solid #1a1f35;margin-bottom:8px;cursor:pointer;background:#0c0e1a;transition:all .15s}
   .mcard:hover{background:#13172a}.mcard.ac{background:#141830;border-color:#3b5bdb}
 `;
+
+// Geriye dönük uyumluluk — bazı bileşenler bunları utils'ten import eder
+export const authHeaders = (token) => ({
+  Authorization: `Bearer ${token}`,
+  "Content-Type": "application/json"
+});
+
+export const toast = (msg, type = "success") => {
+  const el = document.getElementById("mdm-toast");
+  if (!el) return;
+  el.textContent = (type === "error" ? "❌ " : "✅ ") + msg;
+  el.style.background = type === "error" ? "#1a0a0a" : "#0a140a";
+  el.style.borderColor = type === "error" ? "#7c2626" : "#2a5c2a";
+  el.style.color = type === "error" ? "#f87171" : "#4ade80";
+  el.style.display = "flex";
+  clearTimeout(el._tid);
+  el._tid = setTimeout(() => { el.style.display = "none"; }, 3500);
+};
