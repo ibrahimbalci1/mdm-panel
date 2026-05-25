@@ -110,6 +110,8 @@ export function Kiosk({ sendAll, setTab, devices, policies, toast$, apps }) {
   const [disableHome, setDisableHome] = React.useState(true);
   const [disableStatusBar, setDisableStatusBar] = React.useState(true);
   const [applying, setApplying] = React.useState(false);
+  const [exitPassword, setExitPassword] = React.useState("");
+  const [settingPassword, setSettingPassword] = React.useState(false);
   const [activeTab, setActiveTab] = React.useState("config");
 
   const toggleApp = (app) => {
@@ -158,6 +160,27 @@ export function Kiosk({ sendAll, setTab, devices, policies, toast$, apps }) {
     }
     toast$(ok > 0 ? `✅ Kiosk launcher ${ok}/${devices.length} cihaza uygulandı` : "❌ Gönderilemedi", ok === 0 ? "error" : "success");
     setApplying(false);
+  };
+
+
+  const setKioskPassword = async () => {
+    if (!exitPassword) { toast$("Şifre boş olamaz", "error"); return; }
+    if (!devices.length) { toast$("Kayıtlı cihaz yok", "error"); return; }
+    setSettingPassword(true);
+    const token = localStorage.getItem("mdm_token");
+    let ok = 0;
+    for (const d of devices) {
+      try {
+        const r = await fetch(`${API}/commands/device/${d.id}`, {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ command_type: "set_kiosk_password", payload: { password: exitPassword } }),
+        });
+        if (r.ok) ok++;
+      } catch {}
+    }
+    toast$(ok > 0 ? `🔐 Şifre ${ok} cihaza gönderildi` : "❌ Gönderilemedi", ok === 0 ? "error" : "success");
+    setSettingPassword(false);
   };
 
   const disableKiosk = async () => {
@@ -276,6 +299,34 @@ export function Kiosk({ sendAll, setTab, devices, policies, toast$, apps }) {
                   <span style={{ color:"#22c55e" }}>✓</span><span>{t}</span>
                 </div>
               ))}
+            </div>
+          </div>
+
+          {/* Çıkış Şifresi Kartı */}
+          <div className="card" style={{ padding:18, gridColumn:"1 / -1" }}>
+            <div style={{ fontSize:13, fontWeight:600, color:"#f1f5f9", marginBottom:4 }}>🔐 Kiosk Çıkış Şifresi</div>
+            <div style={{ fontSize:12, color:"#475569", marginBottom:14 }}>
+              Cihaz ekranında gizli butona uzun basıldığında bu şifre sorulur. Doğru girilirse kiosk kapanır.
+            </div>
+            <div style={{ display:"flex", gap:10, alignItems:"center" }}>
+              <input
+                type="number"
+                placeholder="Örn: 1234"
+                value={exitPassword}
+                onChange={e => setExitPassword(e.target.value)}
+                style={{
+                  flex:1, padding:"10px 14px", background:"#0c0e1a", border:"1px solid #2a3048",
+                  borderRadius:8, color:"#f1f5f9", fontSize:15, fontFamily:"monospace",
+                  outline:"none", letterSpacing:4,
+                }}
+              />
+              <button className="btn pr" style={{ padding:"10px 20px", whiteSpace:"nowrap" }}
+                onClick={setKioskPassword} disabled={settingPassword || !exitPassword}>
+                {settingPassword ? "⏳" : "🔐 Şifreyi Gönder"}
+              </button>
+            </div>
+            <div style={{ fontSize:11, color:"#475569", marginTop:8 }}>
+              💡 Kiosk uygulanırken şifre otomatik gönderilir. Sonradan değiştirmek için buradan güncelleyin.
             </div>
           </div>
 
