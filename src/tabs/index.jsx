@@ -98,114 +98,408 @@ export function Apps({ apps, devices, setAppModal, setEditApp, setAppForm, deplo
 }
 
 // ─── Kiosk ────────────────────────────────────────────────────────────────
-export function Kiosk({ sendAll, setTab, devices, policies, toast$ }) {
-  const [kioskPolicyId, setKioskPolicyId] = React.useState("");
-  const [kioskApps, setKioskApps] = React.useState([""]);
-  const [kioskMode, setKioskMode] = React.useState("single");
+export function Kiosk({ sendAll, setTab, devices, policies, toast$, apps }) {
+  const CAT_ICONS = { "Kurumsal":"🏢","İletişim":"💬","E-posta":"📧","Tarayıcı":"🌐","Depolama":"💾","Toplantı":"🎥","Güvenlik":"🔒","Araç":"🔧","Diğer":"📦" };
+  const BG_COLORS = ["#0a0c18","#0a1628","#0d1a0d","#1a0d0d","#1a0a1a","#1a1200","#1a0808"];
+
+  const [selectedApps, setSelectedApps] = React.useState([]);
+  const [bgColor, setBgColor] = React.useState("#0a0c18");
+  const [columns, setColumns] = React.useState(3);
+  const [showLabels, setShowLabels] = React.useState(true);
+  const [disableBack, setDisableBack] = React.useState(true);
+  const [disableHome, setDisableHome] = React.useState(true);
+  const [disableStatusBar, setDisableStatusBar] = React.useState(true);
   const [applying, setApplying] = React.useState(false);
+  const [activeTab, setActiveTab] = React.useState("config");
+
+  const toggleApp = (app) => {
+    setSelectedApps(prev =>
+      prev.find(a => a.id === app.id)
+        ? prev.filter(a => a.id !== app.id)
+        : [...prev, app]
+    );
+  };
+
+  const removeFromKiosk = (appId) => {
+    setSelectedApps(prev => prev.filter(a => a.id !== appId));
+  };
 
   const applyKiosk = async () => {
     if (!devices.length) { toast$("Kayıtlı cihaz yok", "error"); return; }
+    if (!selectedApps.length) { toast$("En az bir uygulama seçin", "error"); return; }
     setApplying(true);
-    const filtered = kioskApps.filter(a => a.trim());
     const payload = {
-      kiosk_mode: kioskMode,
-      allowed_apps: filtered,
-      policy_id: kioskPolicyId || null,
-      disable_status_bar: true,
-      disable_home_button: true,
-      disable_back_button: kioskMode === "single",
+      command: "set_kiosk_launcher",
+      allowed_apps: selectedApps.map(a => ({
+        package_name: a.package_name,
+        name: a.name,
+        category: a.category,
+      })),
+      launcher_config: {
+        background_color: bgColor,
+        columns,
+        show_labels: showLabels,
+        disable_back_button: disableBack,
+        disable_home_button: disableHome,
+        disable_status_bar: disableStatusBar,
+      },
     };
     let ok = 0;
+    const token = localStorage.getItem("mdm_token");
     for (const d of devices) {
       try {
-        const r = await fetch(`https://mdm-backend-rk5x.onrender.com/api/v1/commands/device/${d.id}`, {
+        const r = await fetch(`${API}/commands/device/${d.id}`, {
           method: "POST",
-          headers: { "Authorization": `Bearer ${localStorage.getItem("mdm_token")}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ command_type: "push_policy", payload }),
+          headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ command_type: "set_kiosk_launcher", payload }),
         });
         if (r.ok) ok++;
       } catch {}
     }
-    toast$(ok > 0 ? `✅ Kiosk modu ${ok}/${devices.length} cihaza uygulandı` : "❌ Gönderilemedi", ok === 0 ? "error" : "success");
+    toast$(ok > 0 ? `✅ Kiosk launcher ${ok}/${devices.length} cihaza uygulandı` : "❌ Gönderilemedi", ok === 0 ? "error" : "success");
     setApplying(false);
   };
 
+  const disableKiosk = async () => {
+    if (!devices.length) { toast$("Kayıtlı cihaz yok", "error"); return; }
+    const token = localStorage.getItem("mdm_token");
+    let ok = 0;
+    for (const d of devices) {
+      try {
+        const r = await fetch(`${API}/commands/device/${d.id}`, {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ command_type: "disable_kiosk", payload: {} }),
+        });
+        if (r.ok) ok++;
+      } catch {}
+    }
+    toast$(ok > 0 ? `✅ Kiosk ${ok} cihazdan kaldırıldı` : "❌ Gönderilemedi", ok === 0 ? "error" : "success");
+  };
+
+  // Telefon önizleme ikonu
+  const AppIcon = ({ app, small }) => (
+    <div style={{
+      display: "flex", flexDirection: "column", alignItems: "center", gap: small ? 3 : 5,
+      cursor: "default",
+    }}>
+      <div style={{
+        width: small ? 42 : 54, height: small ? 42 : 54, borderRadius: small ? 10 : 13,
+        background: "linear-gradient(135deg,#1e2a50,#2a1e50)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        fontSize: small ? 20 : 26, boxShadow: "0 4px 12px rgba(0,0,0,.5)",
+        border: "1px solid rgba(255,255,255,.08)",
+      }}>
+        {CAT_ICONS[app.category] || "📦"}
+      </div>
+      {showLabels && (
+        <div style={{
+          fontSize: small ? 8 : 10, color: "#fff", textAlign: "center",
+          maxWidth: small ? 44 : 58, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          textShadow: "0 1px 3px rgba(0,0,0,.8)",
+        }}>{app.name}</div>
+      )}
+    </div>
+  );
+
   return (
     <div>
-      <div style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9", marginBottom: 16 }}>Kiosk Modu Yapılandırması</div>
-
-      {/* Mod seçimi */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 20 }}>
-        {[{ id:"single", icon:"📱", t:"Tek Uygulama", d:"Cihaz yalnızca seçilen uygulamayı çalıştırır. Geri ve ev tuşları devre dışı bırakılır." },
-          { id:"multi",  icon:"🖥️", t:"Çoklu Uygulama", d:"Belirlenen uygulamalar listesinden seçim yapılabilir. Diğer uygulamalara erişim engellenir." }
-        ].map(k => (
-          <div key={k.id} className="card" style={{ padding: 18, cursor:"pointer", border: kioskMode===k.id ? "1px solid #3b5bdb" : "1px solid #1a1f35" }}
-            onClick={() => setKioskMode(k.id)}>
-            <div style={{ display:"flex", gap:12, marginBottom:10, alignItems:"center" }}>
-              <div style={{ width:40, height:40, borderRadius:10, background: kioskMode===k.id?"#1a1f3a":"#0c0e1a", display:"flex", alignItems:"center", justifyContent:"center", fontSize:20 }}>{k.icon}</div>
-              <div style={{ fontSize:14, fontWeight:600, color: kioskMode===k.id?"#60a5fa":"#f1f5f9" }}>{k.t}</div>
-              {kioskMode===k.id && <span className="tag" style={{ marginLeft:"auto", background:"#1a1f3a", color:"#60a5fa", fontSize:10 }}>SEÇİLİ</span>}
-            </div>
-            <div style={{ fontSize:12, color:"#64748b", lineHeight:1.6 }}>{k.d}</div>
+      {/* Başlık */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
+        <div>
+          <div style={{ fontSize:15, fontWeight:700, color:"#f1f5f9" }}>🔒 Kiosk Launcher</div>
+          <div style={{ fontSize:12, color:"#475569", marginTop:2 }}>
+            Cihaz ekranında yalnızca seçtiğiniz uygulamalar görünür. Menülere, ayarlara, diğer uygulamalara erişim tamamen engellenir.
           </div>
-        ))}
+        </div>
+        <div style={{ display:"flex", gap:8 }}>
+          <button className="btn" onClick={disableKiosk}>🔓 Kiosk Kaldır</button>
+          <button className="btn pr" style={{ padding:"9px 20px" }} onClick={applyKiosk} disabled={applying || !selectedApps.length}>
+            {applying ? "⏳ Uygulanıyor..." : `🚀 ${devices.length} Cihaza Uygula`}
+          </button>
+        </div>
       </div>
 
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16, marginBottom:16 }}>
-        {/* Uygulama Listesi */}
-        <div className="card" style={{ padding:18 }}>
-          <div style={{ fontSize:13, fontWeight:600, color:"#f1f5f9", marginBottom:12 }}>
-            📱 İzin Verilen Uygulamalar
-          </div>
-          {kioskApps.map((pkg, i) => (
-            <div key={i} style={{ display:"flex", gap:8, marginBottom:8 }}>
-              <input className="fi" placeholder="com.sirket.portal" value={pkg}
-                onChange={e => { const a=[...kioskApps]; a[i]=e.target.value; setKioskApps(a); }}
-                style={{ flex:1 }} />
-              <button className="btn" style={{ padding:"7px 10px", fontSize:12, color:"#f87171" }}
-                onClick={() => setKioskApps(kioskApps.filter((_,j)=>j!==i))}>✕</button>
-            </div>
-          ))}
-          <button className="btn" style={{ width:"100%", fontSize:12, marginTop:4 }}
-            onClick={() => setKioskApps([...kioskApps,""])}>+ Uygulama Ekle</button>
+      {/* Tab bar */}
+      <div style={{ display:"flex", gap:4, marginBottom:18, borderBottom:"1px solid #1a1f35", paddingBottom:0 }}>
+        {[["config","⚙️ Yapılandırma"],["preview","📱 Önizleme"],["apps","📦 Uygulama Seç"]].map(([id,label]) => (
+          <button key={id} onClick={() => setActiveTab(id)} style={{
+            padding:"8px 18px", border:"none", background:"none", cursor:"pointer",
+            color: activeTab===id ? "#60a5fa" : "#475569", fontSize:13, fontWeight: activeTab===id ? 600 : 400,
+            borderBottom: activeTab===id ? "2px solid #3b5bdb" : "2px solid transparent",
+            marginBottom:-1, fontFamily:"inherit",
+          }}>{label}</button>
+        ))}
+        <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:8, paddingBottom:8 }}>
+          <span style={{ fontSize:12, color: selectedApps.length ? "#22c55e" : "#475569" }}>
+            {selectedApps.length} uygulama seçili
+          </span>
+          {selectedApps.length > 0 && (
+            <button className="btn" style={{ fontSize:11, color:"#f87171" }} onClick={() => setSelectedApps([])}>Temizle</button>
+          )}
         </div>
+      </div>
 
-        {/* Politika & Ayarlar */}
-        <div className="card" style={{ padding:18 }}>
-          <div style={{ fontSize:13, fontWeight:600, color:"#f1f5f9", marginBottom:12 }}>⚙️ Ayarlar</div>
-          <div className="fg">
-            <label className="fl">Bağlı Politika (opsiyonel)</label>
-            <select className="fi" value={kioskPolicyId} onChange={e=>setKioskPolicyId(e.target.value)}>
-              <option value="">Politika seçme</option>
-              {(policies||[]).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
-          </div>
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginTop:8 }}>
-            {[["📵","Durum Çubuğu","Gizle"],["🏠","Ev Tuşu","Kapat"],["◀","Geri Tuşu",kioskMode==="single"?"Kapat":"Aktif"],
-              ["📲","Bildirimler","Gizle"],["📷","Kamera","Politikaya bağlı"],["🔆","Parlaklık","Sabit"]].map(([icon,label,val])=>(
-              <div key={label} style={{ padding:10, background:"#0c0e1a", borderRadius:8, border:"1px solid #1a1f35", display:"flex", gap:8, alignItems:"center" }}>
-                <span style={{ fontSize:16 }}>{icon}</span>
-                <div><div style={{ fontSize:11, color:"#e2e8f0", fontWeight:500 }}>{label}</div><div style={{ fontSize:10, color:"#f59e0b" }}>{val}</div></div>
+      {/* ─── Yapılandırma ─── */}
+      {activeTab === "config" && (
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
+          {/* Kısıtlamalar */}
+          <div className="card" style={{ padding:18 }}>
+            <div style={{ fontSize:13, fontWeight:600, color:"#f1f5f9", marginBottom:14 }}>🛡️ Kısıtlamalar</div>
+            {[
+              ["Geri Tuşu Kapat", disableBack, setDisableBack, "Kullanıcı uygulamadan çıkamaz"],
+              ["Ev Tuşu Kapat",  disableHome, setDisableHome, "Ana ekrana dönüş engellenir"],
+              ["Durum Çubuğu Gizle", disableStatusBar, setDisableStatusBar, "Bildirim ve ayarlar erişilemez"],
+            ].map(([label, val, setter, desc]) => (
+              <div key={label} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"11px 0", borderBottom:"1px solid #1a1f35" }}>
+                <div>
+                  <div style={{ fontSize:13, color:"#e2e8f0", fontWeight:500 }}>{label}</div>
+                  <div style={{ fontSize:11, color:"#475569", marginTop:2 }}>{desc}</div>
+                </div>
+                <div onClick={() => setter(!val)} style={{
+                  width:40, height:22, borderRadius:11, cursor:"pointer",
+                  background: val ? "#3b5bdb" : "#2a3048",
+                  position:"relative", transition:"background .2s",
+                }}>
+                  <div style={{
+                    position:"absolute", top:3, left: val ? 20 : 3,
+                    width:16, height:16, borderRadius:"50%", background:"#fff",
+                    transition:"left .2s", boxShadow:"0 1px 4px rgba(0,0,0,.4)",
+                  }}/>
+                </div>
               </div>
             ))}
+            <div style={{ marginTop:14 }}>
+              <div style={{ fontSize:12, color:"#64748b", marginBottom:6 }}>Ek kısıtlamalar (otomatik):</div>
+              {["Uygulama yöneticisine erişim engellendi","Ayarlar menüsü gizlendi","Bilinmeyen uygulama kurulumu engellendi","USB hata ayıklama kapatıldı"].map(t => (
+                <div key={t} style={{ display:"flex", gap:8, marginBottom:5, fontSize:12, color:"#475569" }}>
+                  <span style={{ color:"#22c55e" }}>✓</span><span>{t}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Görünüm */}
+          <div className="card" style={{ padding:18 }}>
+            <div style={{ fontSize:13, fontWeight:600, color:"#f1f5f9", marginBottom:14 }}>🎨 Görünüm</div>
+            <div className="fg">
+              <label className="fl">Arka Plan Rengi</label>
+              <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                {BG_COLORS.map(c => (
+                  <div key={c} onClick={() => setBgColor(c)} style={{
+                    width:32, height:32, borderRadius:8, background:c, cursor:"pointer",
+                    border: bgColor===c ? "2px solid #60a5fa" : "2px solid transparent",
+                    transition:"border .15s",
+                  }}/>
+                ))}
+              </div>
+            </div>
+            <div className="fg" style={{ marginTop:14 }}>
+              <label className="fl">İkon Sütun Sayısı</label>
+              <div style={{ display:"flex", gap:8 }}>
+                {[2,3,4,5].map(n => (
+                  <button key={n} onClick={() => setColumns(n)} style={{
+                    flex:1, padding:"8px", borderRadius:7, border: columns===n ? "1px solid #3b5bdb" : "1px solid #2a3048",
+                    background: columns===n ? "#1a1f3a" : "#0c0e1a", color: columns===n ? "#60a5fa" : "#64748b",
+                    cursor:"pointer", fontSize:13, fontWeight:600, fontFamily:"inherit",
+                  }}>{n}</button>
+                ))}
+              </div>
+            </div>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"11px 0", borderTop:"1px solid #1a1f35", marginTop:6 }}>
+              <div>
+                <div style={{ fontSize:13, color:"#e2e8f0", fontWeight:500 }}>Uygulama İsimleri</div>
+                <div style={{ fontSize:11, color:"#475569", marginTop:2 }}>İkon altında isim göster</div>
+              </div>
+              <div onClick={() => setShowLabels(!showLabels)} style={{
+                width:40, height:22, borderRadius:11, cursor:"pointer",
+                background: showLabels ? "#3b5bdb" : "#2a3048", position:"relative", transition:"background .2s",
+              }}>
+                <div style={{
+                  position:"absolute", top:3, left: showLabels ? 20 : 3,
+                  width:16, height:16, borderRadius:"50%", background:"#fff",
+                  transition:"left .2s", boxShadow:"0 1px 4px rgba(0,0,0,.4)",
+                }}/>
+              </div>
+            </div>
+
+            {/* Özet */}
+            <div style={{ marginTop:14, padding:12, background:"#0c0e1a", borderRadius:8, border:"1px solid #1a1f35" }}>
+              <div style={{ fontSize:11, color:"#475569", marginBottom:8 }}>ÖZET</div>
+              <div style={{ fontSize:12, color:"#94a3b8" }}>
+                <div>📦 {selectedApps.length} uygulama · {columns} sütun</div>
+                <div style={{ marginTop:4 }}>🎯 {devices.length} cihaz hedefleniyor</div>
+                <div style={{ marginTop:4, color: selectedApps.length ? "#22c55e" : "#f87171" }}>
+                  {selectedApps.length ? "✅ Göndermeye hazır" : "⚠️ Uygulama seçilmedi"}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* Uygula */}
-      <div style={{ display:"flex", gap:10, alignItems:"center" }}>
-        <button className="btn pr" style={{ padding:"10px 24px", fontSize:13 }} onClick={applyKiosk} disabled={applying}>
-          {applying ? "⏳ Uygulanıyor..." : `🔒 ${devices.length} Cihaza Kiosk Uygula`}
-        </button>
-        <button className="btn" style={{ fontSize:12 }} onClick={() => sendAll("unlock","Kiosk Kaldır")}>🔓 Kiosk Kaldır</button>
-        <span style={{ fontSize:12, color:"#475569" }}>
-          {devices.length} cihaz hedefleniyor
-        </span>
-        <button className="btn" style={{ fontSize:11, marginLeft:"auto" }} onClick={() => setTab("policies")}>
-          Politika Yönetimi →
-        </button>
-      </div>
+      {/* ─── Önizleme ─── */}
+      {activeTab === "preview" && (
+        <div style={{ display:"flex", gap:20, alignItems:"flex-start" }}>
+          {/* Telefon mockup */}
+          <div style={{ flexShrink:0 }}>
+            <div style={{ fontSize:12, color:"#475569", marginBottom:10, textAlign:"center" }}>Cihaz Önizlemesi</div>
+            <div style={{
+              width:240, borderRadius:36, background:"#1a1f35",
+              padding:"8px", boxShadow:"0 20px 60px rgba(0,0,0,.6), 0 0 0 1px #2a3048",
+            }}>
+              {/* Kamera çentiği */}
+              <div style={{ display:"flex", justifyContent:"center", marginBottom:6 }}>
+                <div style={{ width:60, height:8, borderRadius:4, background:"#0a0c18" }}/>
+              </div>
+              {/* Ekran */}
+              <div style={{
+                background: bgColor, borderRadius:28, minHeight:440, padding:16,
+                position:"relative", overflow:"hidden",
+              }}>
+                {/* Durum çubuğu (gizli görünümü) */}
+                {disableStatusBar ? (
+                  <div style={{ height:18, marginBottom:8, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                    <div style={{ fontSize:9, color:"rgba(255,255,255,.2)" }}>● ● ●</div>
+                  </div>
+                ) : (
+                  <div style={{ height:18, marginBottom:8, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                    <span style={{ fontSize:9, color:"rgba(255,255,255,.6)" }}>09:41</span>
+                    <span style={{ fontSize:9, color:"rgba(255,255,255,.6)" }}>▓▓▓ 🔋</span>
+                  </div>
+                )}
+
+                {selectedApps.length === 0 ? (
+                  <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", height:340, color:"rgba(255,255,255,.3)", fontSize:12, gap:8 }}>
+                    <div style={{ fontSize:32 }}>📱</div>
+                    <div>Uygulama seçilmedi</div>
+                  </div>
+                ) : (
+                  <div style={{
+                    display:"grid", gridTemplateColumns:`repeat(${Math.min(columns, 4)}, 1fr)`,
+                    gap:12, justifyItems:"center",
+                  }}>
+                    {selectedApps.map(app => <AppIcon key={app.id} app={app} small />)}
+                  </div>
+                )}
+
+                {/* Alt nav çubuğu (kiosk'ta gizli) */}
+                {disableHome ? (
+                  <div style={{ position:"absolute", bottom:8, left:0, right:0, display:"flex", justifyContent:"center" }}>
+                    <div style={{ width:60, height:4, borderRadius:2, background:"rgba(255,255,255,.1)" }}/>
+                  </div>
+                ) : (
+                  <div style={{ position:"absolute", bottom:8, left:0, right:0, display:"flex", justifyContent:"space-around", padding:"0 20px" }}>
+                    <div style={{ fontSize:14, opacity:.4 }}>◀</div>
+                    <div style={{ width:20, height:20, borderRadius:"50%", border:"1.5px solid rgba(255,255,255,.3)" }}/>
+                    <div style={{ fontSize:14, opacity:.4 }}>⬜</div>
+                  </div>
+                )}
+              </div>
+              {/* Alt kısım */}
+              <div style={{ height:20, display:"flex", justifyContent:"center", alignItems:"center", marginTop:6 }}>
+                <div style={{ width:80, height:4, borderRadius:2, background:"#2a3048" }}/>
+              </div>
+            </div>
+          </div>
+
+          {/* Seçili uygulamalar listesi */}
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:13, fontWeight:600, color:"#f1f5f9", marginBottom:12 }}>
+              Kiosk Ekranındaki Uygulamalar ({selectedApps.length})
+            </div>
+            {selectedApps.length === 0 ? (
+              <div style={{ padding:"40px", textAlign:"center", color:"#475569", background:"#0f1220", borderRadius:12, border:"1px solid #1a1f35" }}>
+                <div style={{ fontSize:32, marginBottom:8 }}>📦</div>
+                <div>Uygulama Seç sekmesinden ekleyin</div>
+              </div>
+            ) : (
+              <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                {selectedApps.map((app, i) => (
+                  <div key={app.id} style={{
+                    display:"flex", alignItems:"center", gap:12, padding:"12px 14px",
+                    background:"#0f1220", borderRadius:10, border:"1px solid #1a1f35",
+                  }}>
+                    <div style={{ width:8, height:8, borderRadius:"50%", background:"#22c55e", flexShrink:0 }}/>
+                    <div style={{ width:36, height:36, borderRadius:9, background:"#1a1f35", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>
+                      {CAT_ICONS[app.category] || "📦"}
+                    </div>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:13, color:"#f1f5f9", fontWeight:500 }}>{app.name}</div>
+                      <div style={{ fontSize:11, color:"#475569", fontFamily:"monospace" }}>{app.package_name}</div>
+                    </div>
+                    <span style={{ fontSize:10, color:"#475569" }}>#{i+1}</span>
+                    <button className="btn" style={{ fontSize:11, padding:"4px 8px", color:"#f87171" }}
+                      onClick={() => removeFromKiosk(app.id)}>✕</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ─── Uygulama Seç ─── */}
+      {activeTab === "apps" && (
+        <div>
+          <div style={{ fontSize:12, color:"#475569", marginBottom:14 }}>
+            Panele eklenmiş uygulamalar aşağıda listeleniyor. Kiosk ekranında göstermek istediklerinizi seçin.
+          </div>
+          {apps.length === 0 ? (
+            <div style={{ textAlign:"center", padding:"50px", color:"#475569" }}>
+              <div style={{ fontSize:36, marginBottom:10 }}>📦</div>
+              <div>Uygulama yok.</div>
+              <button className="btn pr" style={{ marginTop:12 }} onClick={() => setTab("apps")}>
+                Uygulama Yönetimine Git →
+              </button>
+            </div>
+          ) : (
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))", gap:10 }}>
+              {apps.map(app => {
+                const selected = !!selectedApps.find(a => a.id === app.id);
+                return (
+                  <div key={app.id} onClick={() => toggleApp(app)} style={{
+                    display:"flex", gap:12, alignItems:"center", padding:"12px 14px",
+                    background: selected ? "#141830" : "#0f1220", borderRadius:10,
+                    border: selected ? "1px solid #3b5bdb" : "1px solid #1a1f35",
+                    cursor:"pointer", transition:"all .15s",
+                  }}>
+                    <div style={{ width:40, height:40, borderRadius:10, background:"#1a1f35", display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, flexShrink:0 }}>
+                      {CAT_ICONS[app.category] || "📦"}
+                    </div>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontSize:13, color:"#f1f5f9", fontWeight:500 }}>{app.name}</div>
+                      <div style={{ fontSize:10, color:"#475569", fontFamily:"monospace", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{app.package_name}</div>
+                    </div>
+                    <div style={{
+                      width:20, height:20, borderRadius:5, flexShrink:0,
+                      background: selected ? "#3b5bdb" : "transparent",
+                      border: selected ? "none" : "1px solid #2a3048",
+                      display:"flex", alignItems:"center", justifyContent:"center",
+                    }}>
+                      {selected && <span style={{ color:"#fff", fontSize:12 }}>✓</span>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {selectedApps.length > 0 && (
+            <div style={{ marginTop:16, padding:"12px 16px", background:"#0f1220", borderRadius:10, border:"1px solid #2a3048", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+              <span style={{ fontSize:13, color:"#94a3b8" }}>
+                <span style={{ color:"#60a5fa", fontWeight:600 }}>{selectedApps.length}</span> uygulama seçildi
+              </span>
+              <div style={{ display:"flex", gap:8 }}>
+                <button className="btn" onClick={() => setActiveTab("preview")}>Önizle →</button>
+                <button className="btn pr" onClick={applyKiosk} disabled={applying}>
+                  {applying ? "⏳" : `🚀 ${devices.length} Cihaza Uygula`}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
