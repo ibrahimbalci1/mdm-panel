@@ -445,7 +445,7 @@ export default function App() {
             {tab === "policies"   && <Policies policies={policies} devices={devices} apps={apps} setPolicyModal={setPolicyModal} setEditPolicy={setEditPolicy} setPolicyForm={setPolicyForm} setConfirmModal={setConfirmModal} deletePolicy={deletePolicy} setCommandLog={setCommandLog} toast$={toast$} H={H} API={API} setTab={setTab} generateQr={generateQr} setEnrollPolicyId={setEnrollPolicyId} sendAll={sendAll} />}
             {tab === "profiles"   && <Profiles profiles={profiles} setProfiles={setProfiles} setProfileModal={setProfileModal} setEditProfile={setEditProfile} setProfileForm={setProfileForm} setConfirmModal={setConfirmModal} devices={devices} toast$={toast$} H={H} API={API} />}
             {tab === "apps"       && <Apps apps={apps} devices={devices} setAppModal={setAppModal} setEditApp={setEditApp} setAppForm={setAppForm} deployApp={deployApp} deleteApp={deleteApp} setConfirmModal={setConfirmModal} sendAll={sendAll} />}
-            {tab === "kiosk"      && <Kiosk sendAll={sendAll} setTab={setTab} devices={devices} policies={policies} toast$={toast$} />}
+            {tab === "kiosk"      && <Kiosk sendAll={sendAll} setTab={setTab} devices={devices} policies={policies} toast$={toast$} apps={apps} />}
             {tab === "geofence"   && <Geofence mapLocations={mapLocations} mapLoading={mapLoading} selectedMapDev={selectedMapDev} setSelectedMapDev={setSelectedMapDev} fetchMap={fetchMap} sendAll={sendAll} />}
             {tab === "reports"    && <Reports reports={reports} reportsLoading={reportsLoading} fetchReports={fetchReports} exportCSV={exportCSV} />}
             {tab === "alerts"     && <Alerts alerts={dynamicAlerts} />}
