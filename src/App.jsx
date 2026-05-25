@@ -110,7 +110,7 @@ export default function App() {
     if (!token) return;
     const interval = setInterval(() => {
       fetchAll();
-    }, 5 * 60 * 1000); // 5 dakikada bir otomatik yenile
+    }, 30 * 1000); // 30 saniyede bir otomatik yenile
     return () => clearInterval(interval);
   }, [token]);
   useEffect(() => { if (token && tab === "reports") fetchReports(); }, [tab]);
@@ -136,6 +136,14 @@ export default function App() {
       try { const ar = await fetch(`${API}/apps/`, { headers: H() }); if (ar.ok) { const d = await ar.json(); if (d.length > 0) setApps(d); } } catch {}
     } catch (e) { toast$(`Veri yüklenemedi: ${e.message}`, "error"); }
     setApiLoading(false);
+  };
+
+
+  const fetchDevices = async () => {
+    try {
+      const r = await fetch(`${API}/devices/`, { headers: H() });
+      if (r.ok) setDevices(await r.json());
+    } catch {}
   };
 
   const fetchUsers = async () => {
@@ -206,6 +214,7 @@ export default function App() {
         toast$(`✅ ${CMD_LABELS[cmd] || cmd} başarıyla gönderildi`);
         if (cmd === "lock")  setDevices(p => p.map(d => d.id === device.id ? { ...d, status: "locked" } : d));
         if (cmd === "wipe")  setDevices(p => p.map(d => d.id === device.id ? { ...d, status: "wiped" } : d));
+        setTimeout(fetchDevices, 2000); // Komut sonrası cihaz durumunu güncelle
       } else {
         toast$(`❌ HTTP ${r.status}: ${data?.detail || "Komut gönderilemedi"}`, "error");
       }
@@ -222,6 +231,7 @@ export default function App() {
     }
     setCommandLog(p => [{ id: Date.now(), device: `${ok}/${devices.length} cihaz`, cmd: label, time: new Date().toLocaleTimeString("tr-TR"), ok: fail === 0 }, ...p.slice(0, 49)]);
     toast$(fail === 0 ? `✅ ${label} → ${ok} cihaza gönderildi` : `⚠️ ${ok} başarılı, ${fail} başarısız`, fail > 0 && ok === 0 ? "error" : "success");
+    setTimeout(fetchDevices, 2000);
   };
 
   const generateQr = async (policyId = null, type = "provisioning") => {
@@ -340,7 +350,7 @@ export default function App() {
     toast$(`⏳ "${app.name}" ${devices.length} cihaza gönderiliyor...`);
     let ok = 0;
     for (const d of devices) {
-      try { const r = await fetch(`${API}/commands/device/${d.id}`, { method: "POST", headers: H(), body: JSON.stringify({ command_type: "install_app", payload: { package_name: app.package_name, app_name: app.name } }) }); if (r.ok) ok++; }
+      try { const r = await fetch(`${API}/commands/device/${d.id}`, { method: "POST", headers: H(), body: JSON.stringify({ command_type: "install_app", payload: { package_name: app.package_name, app_name: app.name, apk_url: app.apk_url || "" } }) }); if (r.ok) ok++; }
       catch {}
     }
     toast$(ok > 0 ? `✅ "${app.name}" ${ok}/${devices.length} cihaza gönderildi` : `❌ Gönderilemedi`, ok === 0 ? "error" : "success");
